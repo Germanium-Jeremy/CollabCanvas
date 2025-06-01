@@ -4,7 +4,7 @@
 // lives in CanvasStage, which is client-only (see dynamic import below).
 import type Konva from "konva";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { History, Link2, Sparkles, Wifi, WifiOff } from "lucide-react";
+import { History, Sparkles, Wifi, WifiOff } from "lucide-react";
 import { WebsocketProvider } from "y-websocket";
 import * as Y from "yjs";
 import { boardElementSchema, type BoardElement, type RoomRole } from "@collabcanvas/shared";
@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { HistoryPanel } from "./HistoryPanel";
 import { AiPanel } from "./AiPanel";
+import { MembersPanel } from "./MembersPanel";
 import { PresenceAvatars, PresenceCursors } from "./PresenceLayer";
 import { Toolbar } from "./Toolbar";
 import dynamic from "next/dynamic";
@@ -34,6 +35,7 @@ interface BoardProps {
   roomId: string;
   roomName: string;
   role: RoomRole;
+  isPublic: boolean;
   inviteCode: string | null;
   user: { id: string; name: string };
 }
@@ -43,12 +45,13 @@ function readElements(ymap: Y.Map<unknown>): BoardElement[] {
   ymap.forEach((value) => {
     const parsed = boardElementSchema.safeParse(value);
     if (parsed.success) elements.push(parsed.data);
-    else console.log("[dbg] readElements parse failed:", JSON.stringify(value), JSON.stringify(parsed.error.issues.slice(0, 3)));
+    // Malformed entries (e.g. from a buggy writer) are skipped, never thrown:
+    // one bad element must not blank the whole board.
   });
   return elements.sort((a, b) => a.z - b.z || a.createdAt - b.createdAt);
 }
 
-export function Board({ roomId, roomName, role, inviteCode, user }: BoardProps) {
+export function Board({ roomId, roomName, role, isPublic, inviteCode, user }: BoardProps) {
   const canEdit = role === "OWNER" || role === "EDITOR";
 
   const [doc, setDoc] = useState<Y.Doc | null>(null);
@@ -65,8 +68,8 @@ export function Board({ roomId, roomName, role, inviteCode, user }: BoardProps) 
   const [camera, setCamera] = useState<Camera>(DEFAULT_CAMERA);
   const [aiOpen, setAiOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const stageRef = useRef<Konva.Stage | null>(null);
   const lastSavedRef = useRef<string | null>(null);
@@ -181,13 +184,11 @@ export function Board({ roomId, roomName, role, inviteCode, user }: BoardProps) 
   // ---- Mutations ----
   const addElements = useCallback(
     (newElements: BoardElement[]) => {
-      console.log("[dbg] addElements n=", newElements.length, "doc=", !!doc, "canEdit=", canEdit);
       if (!doc || !canEdit) return;
       const ymap = doc.getMap<unknown>(ELEMENTS_MAP_KEY);
       doc.transact(() => {
         for (const element of newElements) ymap.set(element.id, element);
       });
-      console.log("[dbg] ymap size after set:", ymap.size);
     },
     [canEdit, doc],
   );
@@ -204,7 +205,6 @@ export function Board({ roomId, roomName, role, inviteCode, user }: BoardProps) 
 
   const deleteElement = useCallback(
     (id: string) => {
-      console.log("[dbg] deleteElement", id, new Error().stack?.split("\n").slice(1, 4).join(" | "));
       if (!doc || !canEdit) return;
       doc.getMap<unknown>(ELEMENTS_MAP_KEY).delete(id);
       setSelectedId((current) => (current === id ? null : current));
@@ -321,20 +321,14 @@ export function Board({ roomId, roomName, role, inviteCode, user }: BoardProps) 
 
   // ---- E2E hook ----
   useEffect(() => {
-    (window as unknown as Record<string, unknown>).__boardElements = elements.length;
+    const boardWindow = window as unknown as Record<string, unknown>;
+    boardWindow.__boardElements = elements.length;
+    boardWindow.__boardElementSnapshot = elements;
     return () => {
-      delete (window as unknown as Record<string, unknown>).__boardElements;
+      delete boardWindow.__boardElements;
+      delete boardWindow.__boardElementSnapshot;
     };
   }, [elements]);
-
-  const copyInvite = useCallback(async () => {
-    const link = inviteCode
-      ? `${env.appUrl}/rooms/${roomId}?code=${inviteCode}`
-      : `${env.appUrl}/rooms/${roomId}`;
-    await navigator.clipboard.writeText(link);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }, [inviteCode, roomId]);
 
   const editingUsers = [...presence.values()].filter((u) => u.isEditing);
 
@@ -359,10 +353,9 @@ export function Board({ roomId, roomName, role, inviteCode, user }: BoardProps) 
         </div>
 
         <div className="flex items-center gap-2">
-          <PresenceAvatars users={[...presence.values()]} selfName={user.name} selfColor={selfColor} />
-          <Button size="sm" variant="ghost" onClick={copyInvite} title="Copy invite link">
-            <Link2 className="h-4 w-4" aria-hidden />
-            {copied ? "Copied!" : "Invite"}
+          <PresenceAvatars users={[...presence.values()]} selfName={user.name} selfColor={selfColor} onOpenRoster={() => setMembersOpen(true)} />
+          <Button size="sm" variant="secondary" onClick={() => setMembersOpen(true)} data-testid="invite-button">
+            Invite
           </Button>
           <Button size="sm" variant="secondary" onClick={() => setAiOpen((v) => !v)} data-testid="toggle-ai">
             <Sparkles className="h-4 w-4 text-blue-500" aria-hidden /> AI
@@ -430,6 +423,18 @@ export function Board({ roomId, roomName, role, inviteCode, user }: BoardProps) 
             }}
             onToolChange={setTool}
             onClose={() => setAiOpen(false)}
+          />
+        ) : null}
+
+        {membersOpen ? (
+          <MembersPanel
+            roomId={roomId}
+            roomName={roomName}
+            isPublic={isPublic}
+            role={role}
+            inviteCode={inviteCode}
+            selfId={user.id}
+            onClose={() => setMembersOpen(false)}
           />
         ) : null}
 
