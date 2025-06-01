@@ -56,17 +56,18 @@ model Session {
 }
 
 model Room {
-  id          String       @id @default(cuid())
+  id          String            @id @default(cuid())
   name        String
-  isPublic    Boolean      @default(false)
-  inviteCode  String       @unique @default(cuid())
+  isPublic    Boolean           @default(false)
+  inviteCode  String            @unique @default(cuid())
   ownerId     String
   boardData   String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
   deletedAt   DateTime?
-  owner       User         @relation("OwnedRooms", fields: [ownerId], references: [id], onDelete: Cascade)
+  owner       User              @relation("OwnedRooms", fields: [ownerId], references: [id], onDelete: Cascade)
   members     RoomMember[]
+  invitations RoomInvitation[]
   snapshots   Snapshot[]
   reports     Report[]
   blocks      Block[]
@@ -86,6 +87,23 @@ model RoomMember {
 
   @@unique([roomId, userId])
   @@index([userId])
+}
+
+/// Email invitation with a pre-selected role. Distinct from the room's
+/// share-link code: each row targets one recipient, carries its own secret
+/// code, and is consumed (status=accepted) on first successful join.
+model RoomInvitation {
+  id        String    @id @default(cuid())
+  roomId    String
+  email     String
+  code      String    @unique @default(cuid())
+  role      Role      @default(VIEWER)
+  status    String    @default("pending") // pending | accepted | revoked
+  createdAt DateTime  @default(now())
+  room      Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, email])
+  @@index([roomId, status])
 }
 
 model Snapshot {
