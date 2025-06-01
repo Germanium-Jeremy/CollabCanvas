@@ -1,3 +1,4 @@
+import type { BoardElement } from "@collabcanvas/shared";
 import type { Page } from "@playwright/test";
 
 /** Register a new user through the UI and land on /rooms. */
@@ -32,6 +33,20 @@ export async function dragOnCanvas(page: Page, fromX: number, fromY: number, toX
   await page.mouse.up();
 }
 
+/** Click the rendered Konva canvas at coordinates relative to its container. */
+export async function clickCanvas(page: Page, x: number, y: number): Promise<void> {
+  const box = await page.getByTestId("canvas-container").boundingBox();
+  if (!box) throw new Error("canvas container not found");
+  await page.mouse.click(box.x + x, box.y + y);
+}
+
 export function boardElementCount(page: Page): Promise<number> {
   return page.evaluate(() => (window as unknown as Record<string, number | undefined>).__boardElements ?? 0);
+}
+
+/** Read the board's rendered Yjs state through the test-only browser hook. */
+export function boardElements(page: Page): Promise<BoardElement[]> {
+  return page.evaluate(
+    () => ((window as unknown as Record<string, BoardElement[] | undefined>).__boardElementSnapshot ?? []),
+  );
 }
