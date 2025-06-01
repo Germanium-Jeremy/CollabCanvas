@@ -78,22 +78,41 @@ describe.skipIf(!dbUp)("room CRUD + permission enforcement", () => {
       expect(res.status).toBe(403);
     });
 
-    it("joins a private room with the invite code as EDITOR", async () => {
+    it("joins a private room with the invite code as VIEWER (links never grant edit)", async () => {
       const res = await request(app.getHttpServer())
         .post(`/api/rooms/${privateRoomId}/join`)
         .set(auth(stranger.cookie))
         .send({ code: privateInviteCode });
       expect(res.status).toBe(201);
-      expect(res.body.role).toBe("EDITOR");
+      expect(res.body.role).toBe("VIEWER");
     });
 
-    it("joins a public room without a code", async () => {
+    it("rejoining never self-promotes an existing member", async () => {
+      // Owner demotes stranger to EDITOR, then a re-join with the code must
+      // keep the explicit role instead of resetting it.
+      const strangerId = (await request(app.getHttpServer()).get("/api/auth/me").set(auth(stranger.cookie))).body.user
+        .id as string;
+      const promote = await request(app.getHttpServer())
+        .patch(`/api/rooms/${privateRoomId}/members`)
+        .set(auth(owner.cookie))
+        .send({ userId: strangerId, role: "EDITOR" });
+      expect(promote.status).toBe(200);
+
+      const rejoin = await request(app.getHttpServer())
+        .post(`/api/rooms/${privateRoomId}/join`)
+        .set(auth(stranger.cookie))
+        .send({ code: privateInviteCode });
+      expect(rejoin.status).toBe(201);
+      expect(rejoin.body.role).toBe("EDITOR");
+    });
+
+    it("joins a public room without a code as VIEWER", async () => {
       const res = await request(app.getHttpServer())
         .post(`/api/rooms/${publicRoomId}/join`)
         .set(auth(stranger.cookie))
         .send({});
       expect(res.status).toBe(201);
-      expect(res.body.role).toBe("EDITOR");
+      expect(res.body.role).toBe("VIEWER");
     });
 
     it("hides the invite code from non-owners on GET", async () => {
@@ -116,14 +135,22 @@ describe.skipIf(!dbUp)("room CRUD + permission enforcement", () => {
         .send({ name: "Boundary room", isPublic: true });
       roomId = room.body.id;
       viewer = await registerUser(app, "rooms-viewer@example.com", "Viewer");
-      // Role assignment targets existing members only — the viewer joins first,
-      // matching the real app flow (join, then the owner adjusts the role).
+      // Role assignment targets existing members only — the viewer joins first
+      // (public join creates VIEWER), then the owner pins the role explicitly.
       await request(app.getHttpServer()).post(`/api/rooms/${roomId}/join`).set(auth(viewer.cookie)).send({});
       const res = await request(app.getHttpServer())
         .patch(`/api/rooms/${roomId}/members`)
         .set(auth(owner.cookie))
         .send({ userId: viewer.id, role: "VIEWER" });
       expect(res.status).toBe(200);
+      // The editor user joins as VIEWER and is promoted by the owner — the
+      // only path to EDITOR is an owner action (join/links never grant it).
+      await request(app.getHttpServer()).post(`/api/rooms/${roomId}/join`).set(auth(editor.cookie)).send({});
+      const promote = await request(app.getHttpServer())
+        .patch(`/api/rooms/${roomId}/members`)
+        .set(auth(owner.cookie))
+        .send({ userId: editor.id, role: "EDITOR" });
+      expect(promote.status).toBe(200);
     });
 
     it("viewers can read the room", async () => {
@@ -214,6 +241,128 @@ describe.skipIf(!dbUp)("room CRUD + permission enforcement", () => {
 
       const get = await request(app.getHttpServer()).get(`/api/rooms/${id}`).set(auth(owner.cookie));
       expect(get.status).toBe(404);
+    });
+  });
+
+  describe("email invitations", () => {
+    let roomId: string;
+
+    beforeAll(async () => {
+      const room = await request(app.getHttpServer())
+        .post("/api/rooms")
+        .set(auth(owner.cookie))
+        .send({ name: "Invite room", isPublic: false });
+      roomId = room.body.id;
+    });
+
+    it("owner creates an invitation with a chosen role and receives a code", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/rooms/${roomId}/invitations`)
+        .set(auth(owner.cookie))
+        .send({ email: "Invited-User@example.com", role: "EDITOR" });
+      expect(res.status).toBe(201);
+      expect(res.body.email).toBe("invited-user@example.com");
+      expect(res.body.role).toBe("EDITOR");
+      expect(res.body.code).toMatch(/^inv_/);
+    });
+
+    it("rejects invalid emails", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/rooms/${roomId}/invitations`)
+        .set(auth(owner.cookie))
+        .send({ email: "nope", role: "EDITOR" });
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects OWNER as an invitation role", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/rooms/${roomId}/invitations`)
+        .set(auth(owner.cookie))
+        .send({ email: "someone@example.com", role: "OWNER" });
+      expect(res.status).toBe(400);
+    });
+
+    it("editors cannot create, list, or change invitations", async () => {
+      // Promote the editor into this private room first.
+      const editorId = (await request(app.getHttpServer()).get("/api/auth/me").set(auth(editor.cookie))).body.user
+        .id as string;
+      await request(app.getHttpServer())
+        .post(`/api/rooms/${roomId}/join`)
+        .set(auth(editor.cookie))
+        .send({ code: (await request(app.getHttpServer()).get(`/api/rooms/${roomId}`).set(auth(owner.cookie))).body.inviteCode });
+      await request(app.getHttpServer())
+        .patch(`/api/rooms/${roomId}/members`)
+        .set(auth(owner.cookie))
+        .send({ userId: editorId, role: "EDITOR" });
+
+      const create = await request(app.getHttpServer())
+        .post(`/api/rooms/${roomId}/invitations`)
+        .set(auth(editor.cookie))
+        .send({ email: "x@example.com", role: "VIEWER" });
+      expect(create.status).toBe(403);
+
+      const list = await request(app.getHttpServer()).get(`/api/rooms/${roomId}/invitations`).set(auth(editor.cookie));
+      expect(list.status).toBe(403);
+
+      const patch = await request(app.getHttpServer())
+        .patch(`/api/rooms/${roomId}/invitations/whatever`)
+        .set(auth(editor.cookie))
+        .send({ role: "VIEWER" });
+      expect(patch.status).toBe(403);
+    });
+
+    it("redeems a valid invitation and grants the chosen role", async () => {
+      // Register the invited user with the exact email that was invited.
+      const invited = await registerUser(app, "invited-user@example.com", "Invited User");
+
+      const created = await request(app.getHttpServer())
+        .post(`/api/rooms/${roomId}/invitations`)
+        .set(auth(owner.cookie))
+        .send({ email: "invited-user@example.com", role: "EDITOR" });
+      const code = created.body.code as string;
+
+      const redeem = await request(app.getHttpServer())
+        .post(`/api/rooms/${roomId}/invitations/redeem`)
+        .set(auth(invited.cookie))
+        .send({ email: "invited-user@example.com", code });
+      expect(redeem.status).toBe(201);
+      expect(redeem.body.role).toBe("EDITOR");
+
+      // Role is visible through the room resource.
+      const me = await request(app.getHttpServer()).get(`/api/rooms/${roomId}`).set(auth(invited.cookie));
+      expect(me.body.role).toBe("EDITOR");
+    });
+
+    it("rejects a wrong code, wrong email, or already-used invitation", async () => {
+      const wrongCode = await request(app.getHttpServer())
+        .post(`/api/rooms/${roomId}/invitations/redeem`)
+        .set(auth(stranger.cookie))
+        .send({ email: "invited-user@example.com", code: "inv_wrong" });
+      expect(wrongCode.status).toBe(403);
+
+      const used = await request(app.getHttpServer())
+        .post(`/api/rooms/${roomId}/invitations/redeem`)
+        .set(auth(stranger.cookie))
+        .send({ email: "invited-user@example.com", code: "inv_wrong" });
+      expect(used.status).toBe(403); // invitation already accepted anyway
+    });
+
+    it("an accepted email invitation upgrades an existing link-viewer to EDITOR", async () => {
+      // Stranger joins via link (VIEWER), then redeems an EDITOR invitation.
+      await request(app.getHttpServer()).post(`/api/rooms/${roomId}/join`).set(auth(stranger.cookie)).send({});
+
+      const created = await request(app.getHttpServer())
+        .post(`/api/rooms/${roomId}/invitations`)
+        .set(auth(owner.cookie))
+        .send({ email: "rooms-stranger@example.com", role: "EDITOR" });
+      expect(created.status).toBe(201);
+
+      const redeem = await request(app.getHttpServer())
+        .post(`/api/rooms/${roomId}/invitations/redeem`)
+        .set(auth(stranger.cookie))
+        .send({ email: "rooms-stranger@example.com", code: created.body.code });
+      expect(redeem.status).toBe(201);
+      expect(redeem.body.role).toBe("EDITOR");
     });
   });
 });
