@@ -1,13 +1,19 @@
 import { Body, Controller, Delete, Get, Inject, Param, Patch, Post } from "@nestjs/common";
 import {
+  createInvitationSchema,
   createRoomSchema,
   joinRoomSchema,
+  redeemInvitationSchema,
   reportSchema,
+  setInvitationRoleSchema,
   setMemberRoleSchema,
   updateRoomSchema,
+  type CreateInvitationInput,
   type CreateRoomInput,
   type JoinRoomInput,
+  type RedeemInvitationInput,
   type ReportInput,
+  type SetInvitationRoleInput,
   type SetMemberRoleInput,
   type UpdateRoomInput,
 } from "@collabcanvas/shared";
@@ -42,6 +48,9 @@ export class RoomsController {
       // further memberships for a private room.
       inviteCode: !room.isPublic && role === "OWNER" ? room.inviteCode : null,
       role,
+      // Distinguishes explicit VIEWER members from implicit public visitors —
+      // the UI offers "Join board" only to the latter.
+      isMember: room.members.some((m) => m.userId === user.sub),
       updatedAt: room.updatedAt,
     };
   }
@@ -70,6 +79,57 @@ export class RoomsController {
     @Body(new ZodValidationPipe(joinRoomSchema)) dto: JoinRoomInput,
   ) {
     return this.rooms.join(id, user.sub, dto.code);
+  }
+
+  /** Owner-only: invite a recipient with a chosen EDITOR/VIEWER role. */
+  @Post(":id/invitations")
+  async createInvitation(
+    @CurrentUser() user: { sub: string },
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(createInvitationSchema)) dto: CreateInvitationInput,
+  ) {
+    const room = await this.rooms.getRoomOrThrow(id);
+    return this.rooms.createInvitation(room, user.sub, dto);
+  }
+
+  /** Owner-only: pending invitations for the room. */
+  @Get(":id/invitations")
+  async listInvitations(@CurrentUser() user: { sub: string }, @Param("id") id: string) {
+    const room = await this.rooms.getRoomOrThrow(id);
+    return this.rooms.listInvitations(room, user.sub);
+  }
+
+  /** Owner-only: change a pending invitation's role. */
+  @Patch(":id/invitations/:invitationId")
+  async setInvitationRole(
+    @CurrentUser() user: { sub: string },
+    @Param("id") id: string,
+    @Param("invitationId") invitationId: string,
+    @Body(new ZodValidationPipe(setInvitationRoleSchema)) dto: SetInvitationRoleInput,
+  ) {
+    const room = await this.rooms.getRoomOrThrow(id);
+    return this.rooms.setInvitationRole(room, user.sub, invitationId, dto.role);
+  }
+
+  /** Owner-only: revoke a pending invitation. */
+  @Delete(":id/invitations/:invitationId")
+  async revokeInvitation(
+    @CurrentUser() user: { sub: string },
+    @Param("id") id: string,
+    @Param("invitationId") invitationId: string,
+  ) {
+    const room = await this.rooms.getRoomOrThrow(id);
+    return this.rooms.revokeInvitation(room, user.sub, invitationId);
+  }
+
+  /** Any authenticated user: consume an email invitation (email + code). */
+  @Post(":id/invitations/redeem")
+  redeemInvitation(
+    @CurrentUser() user: { sub: string },
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(redeemInvitationSchema)) dto: RedeemInvitationInput,
+  ) {
+    return this.rooms.redeemInvitation(id, user.sub, dto.email, dto.code).then((role) => ({ roomId: id, role }));
   }
 
   @Get(":id/members")
