@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 import { dragOnCanvas, registerViaUi } from "./helpers";
 
 test("diagnose toolbar overlay", async ({ page }) => {
-  const logs: string[] = [];
   const unique = Date.now();
   await registerViaUi(page, `ovl-${unique}@example.com`, "Overlay Diag");
   await page.getByRole("button", { name: /new room/i }).click();
