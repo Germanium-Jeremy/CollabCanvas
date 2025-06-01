@@ -61,6 +61,8 @@ export function CanvasStage(props: CanvasStageProps) {
   const transformerRef = useRef<Konva.Transformer>(null);
   const nodeRefs = useRef(new Map<string, Konva.Node>());
   const drawStart = useRef<Pointer | null>(null);
+  /** Screen point of a pending text/sticky click; creation is deferred to pointerup. */
+  const pendingClick = useRef<{ x: number; y: number } | null>(null);
   const lastCursorEmit = useRef(0);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [draft, setDraft] = useState<BoardElement | null>(null);
@@ -82,10 +84,10 @@ export function CanvasStage(props: CanvasStageProps) {
   useEffect(() => {
     const transformer = transformerRef.current;
     if (!transformer) return;
-    const node = selectedId ? nodeRefs.current.get(selectedId) : null;
+    const node = canEdit && selectedId ? nodeRefs.current.get(selectedId) : null;
     transformer.nodes(node ? [node] : []);
     transformer.getLayer()?.batchDraw();
-  }, [selectedId, elements]);
+  }, [canEdit, selectedId, elements]);
 
   const toBoard = useCallback(
     (stage: Konva.Stage): Pointer | null => {
@@ -130,8 +132,6 @@ export function CanvasStage(props: CanvasStageProps) {
         return;
       }
       if (!canEdit) return;
-      console.log("[dbg] pointerdown tool=", tool, "canEdit=", canEdit, "point=", point);
-
       if (tool === "eraser") return; // handled per-element click
 
       if (tool === "pen") {
@@ -141,21 +141,13 @@ export function CanvasStage(props: CanvasStageProps) {
         return;
       }
 
-      if (tool === "text") {
-        const element = newElement({ type: "text", x: point.x, y: point.y, text: "", fontSize: 16, color });
-        console.log("[dbg] text branch, element=", element.id);
-        onCreate(element);
-        setEditingText("");
-        onEditingChange(element.id);
-        return;
-      }
-
-      if (tool === "sticky") {
-        const element = newElement({ type: "sticky", x: point.x, y: point.y, width: 180, height: 140, text: "", color });
-        console.log("[dbg] sticky branch, element=", element.id);
-        onCreate(element);
-        setEditingText("");
-        onEditingChange(element.id);
+      if (tool === "text" || tool === "sticky") {
+        // Defer creation to pointerup. Creating during pointerdown races the
+        // browser's focus default: the editor textarea mounts and takes focus,
+        // then the following mousedown/mouseup default action steals focus back,
+        // the blur handler sees an empty element and deletes it — so text and
+        // sticky notes "vanished" the moment they were placed.
+        pendingClick.current = { x: event.evt.clientX, y: event.evt.clientY };
         return;
       }
 
@@ -221,21 +213,47 @@ export function CanvasStage(props: CanvasStageProps) {
     [onCursorMove, stageRef, toBoard],
   );
 
-  const handlePointerUp = useCallback(() => {
-    drawStart.current = null;
-    if (!draft) return;
-    setDraft(null);
+  const handlePointerUp = useCallback(
+    (event: Konva.KonvaEventObject<PointerEvent | MouseEvent>) => {
+      // A text/sticky tool click becomes an element only now: the browser's
+      // focus side effects of the press are done, so the editor that mounts
+      // from this handler keeps keyboard focus and the element survives.
+      if (pendingClick.current) {
+        const start = pendingClick.current;
+        pendingClick.current = null;
+        const moved = Math.hypot(event.evt.clientX - start.x, event.evt.clientY - start.y);
+        const point = toBoard(stageRef.current!);
+        if (moved > 5 || !point) return; // press-drag-release does not create text/sticky
+        if (tool === "text") {
+          const element = newElement({ type: "text", x: point.x, y: point.y, text: "", fontSize: 16, color });
+          onCreate(element);
+          setEditingText("");
+          onEditingChange(element.id);
+        } else if (tool === "sticky") {
+          const element = newElement({ type: "sticky", x: point.x, y: point.y, width: 180, height: 140, text: "", color });
+          onCreate(element);
+          setEditingText("");
+          onEditingChange(element.id);
+        }
+        return;
+      }
 
-    // Ignore accidental micro-drags.
-    const tiny =
-      (draft.type === "rect" && draft.width < 4) ||
-      (draft.type === "ellipse" && draft.radiusX < 2) ||
-      (draft.type === "arrow" && Math.hypot(draft.to.x - draft.from.x, draft.to.y - draft.from.y) < 6) ||
-      (draft.type === "path" && draft.points.length < 2);
-    if (tiny) return;
+      drawStart.current = null;
+      if (!draft) return;
+      setDraft(null);
 
-    onCreate(draft);
-  }, [draft, onCreate]);
+      // Ignore accidental micro-drags.
+      const tiny =
+        (draft.type === "rect" && draft.width < 4) ||
+        (draft.type === "ellipse" && draft.radiusX < 2) ||
+        (draft.type === "arrow" && Math.hypot(draft.to.x - draft.from.x, draft.to.y - draft.from.y) < 6) ||
+        (draft.type === "path" && draft.points.length < 2);
+      if (tiny) return;
+
+      onCreate(draft);
+    },
+    [color, draft, newElement, onCreate, onEditingChange, stageRef, toBoard, tool],
+  );
 
   const handleWheel = useCallback(
     (event: Konva.KonvaEventObject<WheelEvent>) => {
@@ -275,15 +293,15 @@ export function CanvasStage(props: CanvasStageProps) {
   const bindElement = useCallback(
     (element: BoardElement) => ({
       onClick: () => {
-        if (tool === "select") onSelect(element.id);
+        if (tool === "select" && canEdit) onSelect(element.id);
         else if (tool === "eraser" && canEdit) onDelete(element.id);
       },
       onTap: () => {
-        if (tool === "select") onSelect(element.id);
+        if (tool === "select" && canEdit) onSelect(element.id);
         else if (tool === "eraser" && canEdit) onDelete(element.id);
       },
       onDblClick: () => {
-        if (element.type === "text" || element.type === "sticky") {
+        if (canEdit && (element.type === "text" || element.type === "sticky")) {
           setEditingText(element.text);
           onEditingChange(element.id);
         }
@@ -383,8 +401,8 @@ export function CanvasStage(props: CanvasStageProps) {
             width={element.width}
             height={element.height}
             fill={element.fill}
-            stroke={selectedId === element.id ? "#2563eb" : undefined}
-            strokeWidth={selectedId === element.id ? 2 : 0}
+            stroke={canEdit && selectedId === element.id ? "#2563eb" : undefined}
+            strokeWidth={canEdit && selectedId === element.id ? 2 : 0}
             onDragEnd={(e) => handleDragEnd(element, e.target)}
             onTransformEnd={(e) => handleTransformEnd(element, e.target)}
             {...interactive}
@@ -402,8 +420,8 @@ export function CanvasStage(props: CanvasStageProps) {
             radiusX={element.radiusX}
             radiusY={element.radiusY}
             fill={element.fill}
-            stroke={selectedId === element.id ? "#2563eb" : undefined}
-            strokeWidth={selectedId === element.id ? 2 : 0}
+            stroke={canEdit && selectedId === element.id ? "#2563eb" : undefined}
+            strokeWidth={canEdit && selectedId === element.id ? 2 : 0}
             onDragEnd={(e) => handleDragEnd(element, e.target)}
             onTransformEnd={(e) => handleTransformEnd(element, e.target)}
             {...interactive}
@@ -465,8 +483,8 @@ export function CanvasStage(props: CanvasStageProps) {
               shadowOpacity={0.12}
               shadowBlur={8}
               shadowOffsetY={3}
-              stroke={selectedId === sticky.id ? "#2563eb" : undefined}
-              strokeWidth={selectedId === sticky.id ? 2 : 0}
+              stroke={canEdit && selectedId === sticky.id ? "#2563eb" : undefined}
+              strokeWidth={canEdit && selectedId === sticky.id ? 2 : 0}
             />
             <Text
               text={sticky.text}
@@ -491,6 +509,15 @@ export function CanvasStage(props: CanvasStageProps) {
     editingElement && (editingElement.type === "text" || editingElement.type === "sticky")
       ? boardToScreen({ x: editingElement.x, y: editingElement.y })
       : null;
+
+  // Single exit path for the text/sticky editor: commit on blur/Escape (and
+  // Enter for single-line text). An empty editor is discarded with its element;
+  // non-empty content stays in the Yjs map and renders as a Konva node.
+  const commitEditing = useCallback(() => {
+    if (!editingElement) return;
+    if (!editingText.trim()) onDelete(editingElement.id);
+    onEditingChange(null);
+  }, [editingElement, editingText, onDelete, onEditingChange]);
 
   return (
     <div ref={containerRef} className="canvas-container absolute inset-0" data-testid="canvas-container">
@@ -523,10 +550,11 @@ export function CanvasStage(props: CanvasStageProps) {
             ref={transformerRef}
             rotateEnabled={false}
             enabledAnchors={
-              selectedId && SCALABLE_TYPES.has(elements.find((el) => el.id === selectedId)?.type ?? "")
+              canEdit && selectedId && SCALABLE_TYPES.has(elements.find((el) => el.id === selectedId)?.type ?? "")
                 ? ["top-left", "top-right", "bottom-left", "bottom-right"]
                 : []
             }
+            listening={canEdit}
             boundBoxFunc={(oldBox, newBox) => (newBox.width < 10 || newBox.height < 10 ? oldBox : newBox)}
           />
         </Layer>
@@ -537,12 +565,19 @@ export function CanvasStage(props: CanvasStageProps) {
           autoFocus
           data-testid="text-editor"
           value={editingText}
-          onChange={(e) => setEditingText(e.target.value)}
-          onBlur={() => {
-            onUpdate(editingElement.id, { text: editingText } as Partial<BoardElement>);
-            if (!editingText.trim()) onDelete(editingElement.id);
-            onEditingChange(null);
+          onChange={(e) => {
+            const text = e.target.value;
+            setEditingText(text);
+            onUpdate(editingElement.id, { text } as Partial<BoardElement>);
           }}
+          onKeyDown={(e) => {
+            // Enter commits: the text tool writes single-line labels.
+            if (e.key === "Escape" || (e.key === "Enter" && !e.shiftKey)) {
+              e.preventDefault();
+              commitEditing();
+            }
+          }}
+          onBlur={commitEditing}
           className="absolute rounded border-2 border-blue-500 bg-white/90 p-1 text-gray-900 outline-none"
           style={{ left: editingScreen.x, top: editingScreen.y, width: 220, fontSize: editingElement.fontSize }}
         />
@@ -553,12 +588,19 @@ export function CanvasStage(props: CanvasStageProps) {
           autoFocus
           data-testid="sticky-editor"
           value={editingText}
-          onChange={(e) => setEditingText(e.target.value)}
-          onBlur={() => {
-            onUpdate(editingElement.id, { text: editingText } as Partial<BoardElement>);
-            if (!editingText.trim()) onDelete(editingElement.id);
-            onEditingChange(null);
+          onChange={(e) => {
+            const text = e.target.value;
+            setEditingText(text);
+            onUpdate(editingElement.id, { text } as Partial<BoardElement>);
           }}
+          onKeyDown={(e) => {
+            // Sticky notes are multiline; only Escape/blur commits.
+            if (e.key === "Escape") {
+              e.preventDefault();
+              commitEditing();
+            }
+          }}
+          onBlur={commitEditing}
           className="absolute resize-none rounded border-2 border-blue-500 bg-yellow-50/95 p-2 text-sm text-gray-900 outline-none"
           style={{
             left: editingScreen.x,
