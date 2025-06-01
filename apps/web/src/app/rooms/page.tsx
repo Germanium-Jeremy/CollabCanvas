@@ -94,7 +94,7 @@ export default function RoomsPage() {
                 onChange={(e) => setIsPublic(e.target.checked)}
                 className="h-4 w-4"
               />
-              Public (anyone with the link can edit)
+              Public (anyone with the link can view)
             </label>
             <Button type="submit" disabled={busy}>
               {busy ? "Creating…" : "Create"}
