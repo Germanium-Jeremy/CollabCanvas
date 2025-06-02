@@ -18,6 +18,12 @@ export const MAX_ROOM_NAME_LENGTH = 100;
 /** Hard cost-control limit: AI actions per user per hour. */
 export const AI_RATE_LIMIT_PER_HOUR = 5;
 
+/** Share-link tokens for private rooms expire after this many days. */
+export const INVITE_TOKEN_TTL_DAYS = 7;
+
+/** Pending (unaccepted) email invitations allowed per room. */
+export const MAX_PENDING_INVITATIONS_PER_ROOM = 25;
+
 /** Login/register rate limit per IP per 15 minutes. */
 export const AUTH_RATE_LIMIT_PER_15MIN = 20;
 
