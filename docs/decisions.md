@@ -92,3 +92,34 @@ Short ADR-style entries for the non-obvious choices.
 - **Trade-off**: an extra `/auth/me` call per navigation (cheap, indexed lookup).
   A truly global store (React context or TanStack Query) would dedupe these if
   the number of session-aware components grows.
+
+## ADR-011 — Joins grant VIEWER; links and email invites are separate grants
+
+- **Decision**: every join path (public URL, private share-link `?code=`)
+  creates a VIEWER membership. Edit access flows only through explicit owner
+  actions: an email invitation with a pre-chosen role, or a roster promotion.
+  The room page never auto-joins on load, with one exception: opening a
+  `?code=` link to a private room joins automatically because following an
+  invite link *is* the intent to join. Email invitations carry their own
+  secret code (`RoomInvitation`, unique per room+email) and are redeemed via
+  `POST /rooms/:id/invitations/redeem` — acceptance is explicit in the UI.
+- **Why**: page-load auto-join silently granted EDITOR to anyone with a public
+  URL, which contradicted both the viewer role and the roster (guests were
+  invisible and unpromotable). Making ownership the only path to edit rights
+  gives owners real control and makes members visible.
+- **Trade-off**: an extra click for new collaborators ("Join board" banner) and
+  an owner promotion step; the realtime server's 30s role cache means a fresh
+  promotion can lag on live sockets (reconnect/reload picks it up). The
+  share-link `code` is one credential with two transports (link or pasted
+  code) rather than two systems; revocation means rotating `Room.inviteCode`.
+
+## ADR-012 — Text/sticky editors commit on pointerup-created elements
+
+- **Decision**: the text/sticky tools create their board element on
+  **pointerup** (guarded against drags), then mount the editor; Escape/Enter
+  (text) and blur commit content, and an empty editor deletes its element.
+- **Why**: creating on pointerdown mounted the textarea mid-gesture; the
+  browser's focus default after mousedown stole focus back, the blur handler
+  saw an empty element and deleted it — text and stickies vanished instantly.
+  Pointerup is after the focus side effects, so the editor keeps the keyboard.
+- **Trade-off**: none observed; drags still create nothing (intended).
