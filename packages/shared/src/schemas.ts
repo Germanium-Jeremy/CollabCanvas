@@ -32,13 +32,41 @@ export const updateRoomSchema = z.object({
 
 export const setMemberRoleSchema = z.object({
   userId: z.string().min(1),
-  role: z.enum(["OWNER", "EDITOR", "VIEWER"]),
+  // OWNER is deliberately excluded: ownership lives in Room.ownerId and is
+  // not transferable through role updates.
+  role: z.enum(["EDITOR", "VIEWER"]),
 });
 
 export const joinRoomSchema = z.object({
-  /** Invite code, required for private rooms. */
+  /**
+   * Invite code for private rooms — doubles as the share-link token in
+   * `?code=` URLs. Code/link joins always grant VIEWER; only email
+   * invitations carry an owner-chosen role.
+   */
   code: z.string().min(1).max(120).optional(),
 });
+
+export const createInvitationSchema = z.object({
+  /** Email invitation: the recipient joins with exactly this role. */
+  email: z.string().email().max(254),
+  role: z.enum(["EDITOR", "VIEWER"]),
+});
+
+export type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
+
+export const setInvitationRoleSchema = z.object({
+  role: z.enum(["EDITOR", "VIEWER"]),
+});
+
+export type SetInvitationRoleInput = z.infer<typeof setInvitationRoleSchema>;
+
+/** A user consuming an email invitation they received out-of-band. */
+export const redeemInvitationSchema = z.object({
+  email: z.string().email().max(254),
+  code: z.string().min(1).max(120),
+});
+
+export type RedeemInvitationInput = z.infer<typeof redeemInvitationSchema>;
 
 export type CreateRoomInput = z.infer<typeof createRoomSchema>;
 export type UpdateRoomInput = z.infer<typeof updateRoomSchema>;
