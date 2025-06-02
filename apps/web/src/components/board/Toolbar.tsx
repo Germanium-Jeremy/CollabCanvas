@@ -108,6 +108,7 @@ export function Toolbar(props: ToolbarProps) {
       <button
         type="button"
         title="Export as PNG"
+        aria-label="Export as PNG"
         onClick={props.onExportPng}
         className="flex h-9 w-9 items-center justify-center rounded-md text-slate-700 hover:bg-slate-100"
       >
@@ -116,6 +117,7 @@ export function Toolbar(props: ToolbarProps) {
       <button
         type="button"
         title="Export as PDF"
+        aria-label="Export as PDF"
         onClick={props.onExportPdf}
         className="flex h-9 w-9 items-center justify-center rounded-md text-slate-700 hover:bg-slate-100"
       >
