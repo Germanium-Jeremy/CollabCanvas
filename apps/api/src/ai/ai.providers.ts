@@ -1,6 +1,7 @@
-import { Logger } from "@nestjs/common";
-import type { AiDiagramResult, AiSuggestResult, AiSummarizeResult } from "@collabcanvas/shared";
+import type { AiDiagramResult, AiDiagramShape, AiSuggestResult, AiSummarizeResult } from "@collabcanvas/shared";
 import type { BoardContext } from "@collabcanvas/yjs-utils";
+import type { InferenceClient } from "@huggingface/inference";
+import type { GoogleGenAI } from "@google/genai";
 import { getEnv } from "../config/env";
 
 export interface AiProvider {
@@ -35,6 +36,85 @@ export function buildDiagramPrompt(prompt: string): string {
     "Use arrows (from left/top edge to right/bottom edge via x/y and width/height as direction hints) to connect related items. Lay items out on a clean grid starting at (80, 80) with ~240px spacing.",
     `Description: ${prompt}`,
   ].join("\n");
+}
+
+// One system prompt per action, shared by every model-backed provider so all
+// providers answer the same contract.
+const SUMMARIZE_SYSTEM =
+  'You summarize collaborative whiteboards. Reply as JSON: {"summary": string, "keyPoints": string[]}. Keep it under 120 words.';
+const SUGGEST_SYSTEM =
+  'You coach teams working on whiteboards. Reply as JSON: {"ideas": string[]}. Give 3-5 actionable ideas.';
+const DIAGRAM_SYSTEM = "You convert text into simple whiteboard diagrams. Reply only with JSON.";
+
+const MAX_KEY_POINTS = 5;
+const MAX_IDEAS = 5;
+const MAX_SHAPES = 30;
+const MAX_LABEL_LENGTH = 500;
+const SHAPE_TYPES = new Set<AiDiagramShape["type"]>(["rect", "ellipse", "sticky", "text", "arrow"]);
+
+// ---- Output parsing + validation (never trust raw model JSON) ----
+
+/** Parse one completion into a plain object; malformed/empty output throws (→ 503 upstream). */
+export function parseCompletionJson(text: string): Record<string, unknown> {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("empty completion");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error("completion was not valid JSON");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("completion was not a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function stringList(value: unknown, max: number): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map((item) => item.trim())
+    .slice(0, max);
+}
+
+export function normalizeSummarize(json: Record<string, unknown>): AiSummarizeResult {
+  const summary = typeof json.summary === "string" ? json.summary.trim() : "";
+  if (!summary) throw new Error("missing summary");
+  return { summary, keyPoints: stringList(json.keyPoints, MAX_KEY_POINTS) };
+}
+
+export function normalizeSuggest(json: Record<string, unknown>): AiSuggestResult {
+  const ideas = stringList(json.ideas, MAX_IDEAS);
+  if (ideas.length === 0) throw new Error("missing ideas");
+  return { ideas };
+}
+
+export function normalizeDiagram(json: Record<string, unknown>): AiDiagramResult {
+  const raw = json.shapes;
+  if (!Array.isArray(raw)) throw new Error("missing shapes");
+
+  const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+  const shapes: AiDiagramShape[] = [];
+
+  for (const item of raw) {
+    if (shapes.length >= MAX_SHAPES) break;
+    if (!item || typeof item !== "object") continue;
+    const shape = item as Record<string, unknown>;
+    if (typeof shape.type !== "string" || !SHAPE_TYPES.has(shape.type as AiDiagramShape["type"])) continue;
+    if (!finite(shape.x) || !finite(shape.y)) continue;
+    shapes.push({
+      type: shape.type as AiDiagramShape["type"],
+      x: shape.x,
+      y: shape.y,
+      ...(finite(shape.width) ? { width: shape.width } : {}),
+      ...(finite(shape.height) ? { height: shape.height } : {}),
+      ...(typeof shape.label === "string" ? { label: shape.label.slice(0, MAX_LABEL_LENGTH) } : {}),
+    });
+  }
+
+  if (shapes.length === 0) throw new Error("no usable shapes");
+  return { shapes };
 }
 
 // ---- Deterministic mock provider (tests + demos without API keys) ----
@@ -80,11 +160,39 @@ export class MockAiProvider implements AiProvider {
   }
 }
 
+// ---- Shared base for model-backed providers ----
+
+/**
+ * Every model provider returns one non-streamed assistant message; this class
+ * owns the prompt contract, JSON parsing, and result normalization so all
+ * providers behave identically at the API boundary.
+ */
+abstract class ChatJsonProvider implements AiProvider {
+  abstract readonly name: string;
+
+  /** Returns the raw assistant text. Throws on transport, auth, quota, or timeout errors. */
+  protected abstract completeText(system: string, user: string): Promise<string>;
+
+  async summarize(context: BoardContext): Promise<AiSummarizeResult> {
+    const json = parseCompletionJson(await this.completeText(SUMMARIZE_SYSTEM, buildSummarizePrompt(context)));
+    return normalizeSummarize(json);
+  }
+
+  async suggest(context: BoardContext): Promise<AiSuggestResult> {
+    const json = parseCompletionJson(await this.completeText(SUGGEST_SYSTEM, buildSuggestPrompt(context)));
+    return normalizeSuggest(json);
+  }
+
+  async diagram(prompt: string): Promise<AiDiagramResult> {
+    const json = parseCompletionJson(await this.completeText(DIAGRAM_SYSTEM, buildDiagramPrompt(prompt)));
+    return normalizeDiagram(json);
+  }
+}
+
 // ---- OpenAI provider ----
 
-export class OpenAiProvider implements AiProvider {
+export class OpenAiProvider extends ChatJsonProvider {
   readonly name = "openai";
-  private readonly logger = new Logger(OpenAiProvider.name);
   private client: import("openai").default | null = null;
 
   private getClient(): import("openai").default {
@@ -92,12 +200,12 @@ export class OpenAiProvider implements AiProvider {
       // Lazy require keeps startup cheap and avoids import cycles in tests.
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const OpenAI = require("openai") as typeof import("openai").default;
-      this.client = new OpenAI({ apiKey: getEnv().OPENAI_API_KEY, timeout: 20_000, maxRetries: 1 });
+      this.client = new OpenAI({ apiKey: getEnv().OPENAI_API_KEY, timeout: getEnv().AI_TIMEOUT_MS, maxRetries: 1 });
     }
     return this.client;
   }
 
-  private async completeJson(system: string, user: string): Promise<Record<string, unknown>> {
+  protected async completeText(system: string, user: string): Promise<string> {
     const response = await this.getClient().chat.completions.create({
       model: getEnv().OPENAI_MODEL,
       messages: [
@@ -110,44 +218,16 @@ export class OpenAiProvider implements AiProvider {
     });
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error("empty completion");
-    return JSON.parse(content) as Record<string, unknown>;
-  }
-
-  async summarize(context: BoardContext): Promise<AiSummarizeResult> {
-    const json = await this.completeJson(
-      'You summarize collaborative whiteboards. Reply as JSON: {"summary": string, "keyPoints": string[]}. Keep it under 120 words.',
-      buildSummarizePrompt(context),
-    );
-    return {
-      summary: String(json.summary ?? ""),
-      keyPoints: Array.isArray(json.keyPoints) ? json.keyPoints.map(String).slice(0, 5) : [],
-    };
-  }
-
-  async suggest(context: BoardContext): Promise<AiSuggestResult> {
-    const json = await this.completeJson(
-      'You coach teams working on whiteboards. Reply as JSON: {"ideas": string[]}. Give 3-5 actionable ideas.',
-      buildSuggestPrompt(context),
-    );
-    return { ideas: Array.isArray(json.ideas) ? json.ideas.map(String).slice(0, 5) : [] };
-  }
-
-  async diagram(prompt: string): Promise<AiDiagramResult> {
-    const json = await this.completeJson(
-      "You convert text into simple whiteboard diagrams. Reply only with JSON.",
-      buildDiagramPrompt(prompt),
-    );
-    const shapes = Array.isArray(json.shapes) ? json.shapes : [];
-    return { shapes: shapes.slice(0, 30) as AiDiagramResult["shapes"] };
+    return content;
   }
 }
 
 // ---- Ollama provider (local models, zero cost) ----
 
-export class OllamaProvider implements AiProvider {
+export class OllamaProvider extends ChatJsonProvider {
   readonly name = "ollama";
 
-  private async completeJson(system: string, user: string): Promise<Record<string, unknown>> {
+  protected async completeText(system: string, user: string): Promise<string> {
     const env = getEnv();
     const response = await fetch(`${env.OLLAMA_BASE_URL}/api/chat`, {
       method: "POST",
@@ -161,40 +241,102 @@ export class OllamaProvider implements AiProvider {
           { role: "user", content: user },
         ],
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(env.AI_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`ollama error ${response.status}`);
     const json = (await response.json()) as { message?: { content?: string } };
     if (!json.message?.content) throw new Error("empty ollama completion");
-    return JSON.parse(json.message.content) as Record<string, unknown>;
+    return json.message.content;
+  }
+}
+
+// ---- Hugging Face provider (Inference Providers or a dedicated Endpoint) ----
+
+type HuggingFaceChatClient = Pick<InferenceClient, "chatCompletion">;
+
+export class HuggingFaceProvider extends ChatJsonProvider {
+  readonly name = "huggingface";
+  private client: HuggingFaceChatClient | null = null;
+
+  /** Injectable for tests; production resolves the SDK client lazily. */
+  constructor(client?: HuggingFaceChatClient) {
+    super();
+    this.client = client ?? null;
   }
 
-  async summarize(context: BoardContext): Promise<AiSummarizeResult> {
-    const json = await this.completeJson(
-      'You summarize collaborative whiteboards. Reply as JSON: {"summary": string, "keyPoints": string[]}.',
-      buildSummarizePrompt(context),
-    );
-    return {
-      summary: String(json.summary ?? ""),
-      keyPoints: Array.isArray(json.keyPoints) ? json.keyPoints.map(String).slice(0, 5) : [],
-    };
+  private getClient(): HuggingFaceChatClient {
+    if (!this.client) {
+      const env = getEnv();
+      // Lazy require keeps the SDK out of the startup path when another provider is selected.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { InferenceClient } = require("@huggingface/inference") as typeof import("@huggingface/inference");
+      this.client = env.HF_ENDPOINT_URL
+        ? new InferenceClient(env.HF_TOKEN, { endpointUrl: env.HF_ENDPOINT_URL })
+        : new InferenceClient(env.HF_TOKEN);
+    }
+    return this.client;
   }
 
-  async suggest(context: BoardContext): Promise<AiSuggestResult> {
-    const json = await this.completeJson(
-      'You coach teams working on whiteboards. Reply as JSON: {"ideas": string[]}.',
-      buildSuggestPrompt(context),
+  protected async completeText(system: string, user: string): Promise<string> {
+    const env = getEnv();
+    const response = await this.getClient().chatCompletion(
+      {
+        model: env.HF_MODEL ?? "",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        max_tokens: 800,
+        // Pin a specific Inference Provider when configured; otherwise the SDK picks one
+        // that serves the model (set HF_PROVIDER to make routing deterministic).
+        ...(env.HF_PROVIDER ? { provider: env.HF_PROVIDER as NonNullable<Parameters<HuggingFaceChatClient["chatCompletion"]>[0]["provider"]> } : {}),
+      },
+      { signal: AbortSignal.timeout(env.AI_TIMEOUT_MS) },
     );
-    return { ideas: Array.isArray(json.ideas) ? json.ideas.map(String).slice(0, 5) : [] };
+    const content = response.choices?.[0]?.message?.content;
+    if (!content || !content.trim()) throw new Error("empty huggingface completion");
+    return content;
+  }
+}
+
+// ---- Google Gemini provider ----
+
+type GeminiClient = Pick<GoogleGenAI, "models">;
+
+export class GeminiProvider extends ChatJsonProvider {
+  readonly name = "gemini";
+  private client: GeminiClient | null = null;
+
+  /** Injectable for tests; production resolves the SDK client lazily. */
+  constructor(client?: GeminiClient) {
+    super();
+    this.client = client ?? null;
   }
 
-  async diagram(prompt: string): Promise<AiDiagramResult> {
-    const json = await this.completeJson(
-      "You convert text into simple whiteboard diagrams. Reply only with JSON.",
-      buildDiagramPrompt(prompt),
-    );
-    const shapes = Array.isArray(json.shapes) ? json.shapes : [];
-    return { shapes: shapes.slice(0, 30) as AiDiagramResult["shapes"] };
+  private getClient(): GeminiClient {
+    if (!this.client) {
+      // Lazy require keeps the SDK out of the startup path when another provider is selected.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { GoogleGenAI } = require("@google/genai") as typeof import("@google/genai");
+      this.client = new GoogleGenAI({ apiKey: getEnv().GEMINI_API_KEY, httpOptions: { timeout: getEnv().AI_TIMEOUT_MS } });
+    }
+    return this.client;
+  }
+
+  protected async completeText(system: string, user: string): Promise<string> {
+    const response = await this.getClient().models.generateContent({
+      model: getEnv().GEMINI_MODEL,
+      contents: user,
+      config: {
+        systemInstruction: system,
+        responseMimeType: "application/json",
+        temperature: 0.4,
+        maxOutputTokens: 800,
+      },
+    });
+    const text = response.text;
+    if (!text) throw new Error("empty gemini completion");
+    return text;
   }
 }
 
@@ -205,6 +347,10 @@ export function createAiProvider(): AiProvider {
       return new OpenAiProvider();
     case "ollama":
       return new OllamaProvider();
+    case "huggingface":
+      return new HuggingFaceProvider();
+    case "gemini":
+      return new GeminiProvider();
     default:
       return new MockAiProvider();
   }
