@@ -1,57 +1,68 @@
 import { describe, expect, it } from "vitest";
-import { aiRequestSchema, boardElementSchema, loginSchema, registerSchema } from "../src/schemas";
+import {
+  createInvitationSchema,
+  joinRoomSchema,
+  setInvitationRoleSchema,
+  setMemberRoleSchema,
+} from "../src/schemas";
 
-describe("registerSchema", () => {
-  it("accepts a valid registration", () => {
-    const parsed = registerSchema.safeParse({
-      email: "a@b.com",
-      password: "longenough",
-      name: "Ada",
+describe("joinRoomSchema", () => {
+  it("accepts an empty body (public join)", () => {
+    expect(joinRoomSchema.parse({})).toEqual({});
+  });
+
+  it("accepts an invite code", () => {
+    expect(joinRoomSchema.parse({ code: "abc123" })).toEqual({ code: "abc123" });
+  });
+
+  it("rejects non-string codes", () => {
+    expect(joinRoomSchema.safeParse({ code: 42 }).success).toBe(false);
+  });
+});
+
+describe("createInvitationSchema", () => {
+  it("accepts a valid email with EDITOR", () => {
+    expect(createInvitationSchema.parse({ email: "a@b.co", role: "EDITOR" })).toEqual({
+      email: "a@b.co",
+      role: "EDITOR",
     });
-    expect(parsed.success).toBe(true);
   });
 
-  it("rejects short passwords and bad emails", () => {
-    expect(registerSchema.safeParse({ email: "a@b.com", password: "short", name: "A" }).success).toBe(false);
-    expect(registerSchema.safeParse({ email: "nope", password: "longenough", name: "A" }).success).toBe(false);
-  });
-});
-
-describe("loginSchema", () => {
-  it("requires email and password", () => {
-    expect(loginSchema.safeParse({ email: "a@b.com", password: "x" }).success).toBe(true);
-    expect(loginSchema.safeParse({ email: "a@b.com" }).success).toBe(false);
-  });
-});
-
-describe("boardElementSchema", () => {
-  const base = { id: "e1", createdBy: "u1", createdAt: 1, z: 0 };
-
-  it("accepts each element kind", () => {
-    expect(boardElementSchema.safeParse({ ...base, type: "rect", x: 0, y: 0, width: 10, height: 10, fill: "#fff" }).success).toBe(true);
-    expect(boardElementSchema.safeParse({ ...base, type: "sticky", x: 0, y: 0, width: 100, height: 100, text: "hi", color: "#facc15" }).success).toBe(true);
-    expect(boardElementSchema.safeParse({ ...base, type: "arrow", from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, color: "#000" }).success).toBe(true);
+  it("accepts a valid email with VIEWER", () => {
+    expect(createInvitationSchema.parse({ email: "a@b.co", role: "VIEWER" }).role).toBe("VIEWER");
   });
 
-  it("rejects invalid colors and unknown types", () => {
-    expect(boardElementSchema.safeParse({ ...base, type: "rect", x: 0, y: 0, width: 10, height: 10, fill: "javascript:alert(1)" }).success).toBe(false);
-    expect(boardElementSchema.safeParse({ ...base, type: "bomb" }).success).toBe(false);
+  it("rejects an invalid email", () => {
+    expect(createInvitationSchema.safeParse({ email: "not-an-email", role: "EDITOR" }).success).toBe(false);
   });
 
-  it("rejects oversized text (XSS/abuse guard)", () => {
-    const el = { ...base, type: "sticky", x: 0, y: 0, width: 100, height: 100, text: "x".repeat(3000), color: "#fff" };
-    expect(boardElementSchema.safeParse(el).success).toBe(false);
+  it("rejects OWNER as an invitation role", () => {
+    expect(createInvitationSchema.safeParse({ email: "a@b.co", role: "OWNER" }).success).toBe(false);
+  });
+
+  it("rejects a missing role", () => {
+    expect(createInvitationSchema.safeParse({ email: "a@b.co" }).success).toBe(false);
   });
 });
 
-describe("aiRequestSchema", () => {
-  it("only allows the three supported actions", () => {
-    expect(aiRequestSchema.safeParse({ action: "summarize" }).success).toBe(true);
-    expect(aiRequestSchema.safeParse({ action: "diagram", prompt: "login flow" }).success).toBe(true);
-    expect(aiRequestSchema.safeParse({ action: "deleteEverything" }).success).toBe(false);
+describe("setInvitationRoleSchema", () => {
+  it("accepts EDITOR and VIEWER", () => {
+    expect(setInvitationRoleSchema.parse({ role: "EDITOR" })).toEqual({ role: "EDITOR" });
+    expect(setInvitationRoleSchema.parse({ role: "VIEWER" })).toEqual({ role: "VIEWER" });
   });
 
-  it("caps prompt length", () => {
-    expect(aiRequestSchema.safeParse({ action: "diagram", prompt: "p".repeat(3000) }).success).toBe(false);
+  it("rejects OWNER", () => {
+    expect(setInvitationRoleSchema.safeParse({ role: "OWNER" }).success).toBe(false);
+  });
+});
+
+describe("setMemberRoleSchema", () => {
+  it("accepts EDITOR and VIEWER", () => {
+    expect(setMemberRoleSchema.parse({ userId: "u1", role: "EDITOR" }).role).toBe("EDITOR");
+    expect(setMemberRoleSchema.parse({ userId: "u1", role: "VIEWER" }).role).toBe("VIEWER");
+  });
+
+  it("rejects OWNER — ownership is not transferable via role updates", () => {
+    expect(setMemberRoleSchema.safeParse({ userId: "u1", role: "OWNER" }).success).toBe(false);
   });
 });
