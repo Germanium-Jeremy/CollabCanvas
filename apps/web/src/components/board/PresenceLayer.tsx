@@ -1,5 +1,6 @@
 "use client";
 
+import { UserPlus } from "lucide-react";
 import type { PresenceUser } from "@collabcanvas/shared";
 import type { Camera } from "./types";
 
@@ -43,14 +44,32 @@ interface AvatarBarProps {
   users: PresenceUser[];
   selfName: string;
   selfColor: string;
+  /** Opens the member roster. */
+  onOpenRoster: () => void;
 }
 
-/** Avatar stack showing everyone currently in the room. */
-export function PresenceAvatars({ users, selfName, selfColor }: AvatarBarProps) {
+/** Maximum avatars shown before the +N overflow chip. */
+export const MAX_VISIBLE_AVATARS = 3;
+
+/**
+ * Avatar stack: at most MAX_VISIBLE_AVATARS avatars plus a +N overflow chip.
+ * The whole stack is a keyboard-operable button that opens the member roster.
+ */
+export function PresenceAvatars({ users, selfName, selfColor, onOpenRoster }: AvatarBarProps) {
   const all = [{ userId: "self", name: selfName, color: selfColor }, ...users];
+  const visible = all.slice(0, MAX_VISIBLE_AVATARS);
+  const overflow = all.length - visible.length;
+
   return (
-    <div className="flex items-center -space-x-2" data-testid="presence-avatars">
-      {all.slice(0, 6).map((user, index) => (
+    <button
+      type="button"
+      onClick={onOpenRoster}
+      title="Show members"
+      aria-label={`Show all members (${all.length} in this board)`}
+      data-testid="presence-avatars"
+      className="flex items-center -space-x-2 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+    >
+      {visible.map((user, index) => (
         <span
           key={`${user.userId}-${index}`}
           title={user.name}
@@ -60,11 +79,15 @@ export function PresenceAvatars({ users, selfName, selfColor }: AvatarBarProps) 
           {user.name.slice(0, 2).toUpperCase()}
         </span>
       ))}
-      {all.length > 6 ? (
-        <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-slate-400 text-[10px] font-bold text-white">
-          +{all.length - 6}
+      {overflow > 0 ? (
+        <span
+          data-testid="avatar-overflow"
+          className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-slate-400 text-[10px] font-bold text-white"
+        >
+          +{overflow}
         </span>
       ) : null}
-    </div>
+      <UserPlus className="ml-2 h-3.5 w-3.5 text-slate-500" aria-hidden />
+    </button>
   );
 }
