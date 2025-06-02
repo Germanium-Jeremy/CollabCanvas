@@ -21,6 +21,10 @@ export default defineConfig({
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
+  // Dev-mode Next.js serves each page on demand; one worker per CPU core
+  // starves it and times tests out. Two workers exercise the multi-user flows
+  // without collapsing the dev servers (CI can override via --workers).
+  workers: 2,
   retries: process.env.CI ? 1 : 0,
   use: {
     baseURL: `http://localhost:${WEB_PORT}`,
