@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run",
+    "smoke:hf": "node scripts/hf-smoke.mjs",
+    "smoke:ollama": "dotenv -e ../../.env -- tsx scripts/ollama-smoke.ts",
     "db:push": "dotenv -e ../../.env -- prisma db push",
     "db:generate": "dotenv -e ../../.env -- prisma generate"
   },
@@ -19,6 +21,8 @@
   "dependencies": {
     "@collabcanvas/shared": "workspace:*",
     "@collabcanvas/yjs-utils": "workspace:*",
+    "@google/genai": "^2.24.0",
+    "@huggingface/inference": "^4.13.30",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
@@ -43,10 +47,10 @@
     "@types/jsonwebtoken": "^9.0.9",
     "@types/node": "^22.15.0",
     "@types/supertest": "^6.0.3",
+    "dotenv-cli": "^8.0.0",
     "prisma": "^6.5.0",
     "supertest": "^7.1.0",
     "tsx": "^4.19.0",
-    "dotenv-cli": "^8.0.0",
     "vitest": "^3.1.0"
   }
 }
