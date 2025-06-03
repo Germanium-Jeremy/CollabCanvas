@@ -10,3 +10,6 @@ allowBuilds:
   esbuild: true
   core-js: true
   leveldown: false
+  # Neither package needs an install script (@google/genai ships prebuilt, protobufjs has none).
+  "@google/genai": false
+  protobufjs: false
