@@ -31,7 +31,8 @@ Short ADR-style entries for the non-obvious choices.
 
 ## ADR-004 — AI provider abstraction with a deterministic mock
 
-- **Decision**: `AiProvider` interface; `mock | openai | ollama` implementations.
+- **Decision**: `AiProvider` interface; `mock | openai | ollama | huggingface |
+  gemini` implementations (see ADR-013 for the shared contract).
 - **Why**: tests and demos must not depend on paid APIs or network; graceful
   degradation (503) keeps the board usable when AI is down (spec requirement).
 - **Cost control**: per-user fixed window (5/h), `max_tokens` capped, cheap model.
@@ -123,3 +124,28 @@ Short ADR-style entries for the non-obvious choices.
   saw an empty element and deleted it — text and stickies vanished instantly.
   Pointerup is after the focus side effects, so the editor keeps the keyboard.
 - **Trade-off**: none observed; drags still create nothing (intended).
+
+## ADR-013 — One JSON contract for every model provider; HF Inference Providers first
+
+- **Decision**: `ollama`, `openai`, `huggingface`, and `gemini` all extend a
+  shared `ChatJsonProvider` base: identical system prompts, one non-streamed
+  JSON completion, then shared `parseCompletionJson` + result normalization
+  (`normalizeSummarize`, `normalizeSuggest`, `normalizeDiagram`). Hugging Face
+  defaults to **Inference Providers** (`HF_MODEL`, optional `HF_PROVIDER` pin)
+  and switches to a dedicated **Inference Endpoint** only when `HF_ENDPOINT_URL`
+  is set; Gemini uses the current `@google/genai` SDK with
+  `responseMimeType: "application/json"`. The SDKs are lazy-loaded and
+  injectable for tests; `mock` stays the deterministic default.
+- **Why**: the three hosted SDKs differ in auth, streaming, and output shape,
+  but the API contract must not — one parse/validate boundary is the single
+  place that proves model output can never inject arbitrary data onto the
+  board (unknown shape types, NaN coordinates, oversized labels are dropped;
+  empty/malformed output becomes a controlled 503). Inference Providers let you
+  compare model/provider combos without deploying anything, while an
+  Inference Endpoint is the explicit production path when a stable private URL
+  and endpoint lifecycle control matter (its own cost/scaling settings).
+  `@google/generative-ai` is deprecated, so Gemini uses `@google/genai`.
+- **Trade-off**: structured output is not schema-enforced by every provider, so
+  validation is defensive and a non-compliant model degrades to 503 instead of
+  a partial answer. Routing knobs (provider pin, endpoint URL, model ids) are
+  env vars — no provider picker in the UI, and credentials stay server-side.
