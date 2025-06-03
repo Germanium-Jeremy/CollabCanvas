@@ -27,8 +27,6 @@ test("text and sticky notes stay visible after editing", async ({ page }) => {
   await page.waitForURL("**/rooms/*");
   await expect(page.getByTestId("connection-status")).toContainText("Live");
 
-  const box = (await page.getByTestId("canvas-container").boundingBox())!;
-
   // --- Text: click, type, commit with Enter ---
   await page.getByLabel("Text (T)").click();
   await clickCanvas(page, 300, 120);
