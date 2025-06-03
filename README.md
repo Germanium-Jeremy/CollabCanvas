@@ -21,7 +21,8 @@ plan together with low latency, live presence, board history and export.
   management, report/block (abuse basics).
 - **AI (cost-controlled)** — summarize board, suggest next steps, generate diagram
   from text. Proxied, rate-limited (5/user/hour), feature-flagged, graceful
-  degradation with a deterministic mock provider.
+  degradation with a deterministic mock provider; model-backed providers are
+  Ollama (local), OpenAI, Hugging Face, and Google Gemini.
 - **Export & history** — PNG/PDF export; version snapshots (manual + auto) with
   one-click restore.
 
@@ -60,8 +61,22 @@ run on the host with `pnpm dev`.
 `AI_PROVIDER=mock` (default) needs no key and returns deterministic results —
 good for tests and demos. For real calls:
 
+- `AI_PROVIDER=ollama` + local Ollama (`OLLAMA_BASE_URL=http://localhost:11434`,
+  `OLLAMA_MODEL=llama3.2`, then `ollama pull llama3.2`) - no cloud key needed;
+  `OLLAMA_MODEL` must match a name from `ollama list`, and slow hardware wants a
+  larger `AI_TIMEOUT_MS`. Smoke test: `pnpm --filter @collabcanvas/api smoke:ollama`
 - `AI_PROVIDER=openai` + `OPENAI_API_KEY` (uses `gpt-4o-mini`)
-- `AI_PROVIDER=ollama` + local Ollama (`OLLAMA_MODEL=llama3.2`)
+- `AI_PROVIDER=huggingface` + `HF_TOKEN` + `HF_MODEL` - optional `HF_PROVIDER`
+  pins an Inference Provider; `HF_ENDPOINT_URL` targets a dedicated Inference
+  Endpoint instead. Connectivity check:
+  `pnpm --filter @collabcanvas/api smoke:hf`
+- `AI_PROVIDER=gemini` + `GEMINI_API_KEY` (uses `GEMINI_MODEL`, default
+  `gemini-2.5-flash`)
+
+Only the selected provider's variables are required; all of them live in the
+API environment (never in `NEXT_PUBLIC_*` or the browser). Every provider
+answers the same JSON contract and its output is validated before it reaches
+the board - a provider failure returns `503` and the board keeps working.
 
 ### OAuth (optional)
 
