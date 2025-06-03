@@ -76,10 +76,22 @@ used by the API guards *and* the realtime server, so both enforce identical rule
 ## AI proxy (cost control)
 
 - The client never sees provider keys; all calls go through `POST /api/rooms/:id/ai`.
-- Providers: `mock` (deterministic, for tests/demos), `openai` (gpt-4o-mini),
-  `ollama` (local, zero cost). Selected via `AI_PROVIDER`.
+- Providers: `mock` (deterministic, for tests/demos), `ollama` (local, zero cost),
+  `openai` (gpt-4o-mini), `huggingface` (Inference Providers or a dedicated
+  Inference Endpoint), `gemini` (Google AI Studio key). Selected via
+  `AI_PROVIDER`; config validation requires credentials only for the selected
+  provider, so Ollama and mock work with no cloud secrets.
+- All model-backed providers share one `AiProvider` contract: the same system
+  prompts, one non-streamed JSON completion, then shared parsing/normalization
+  (`parseCompletionJson`, `normalizeSummarize/Suggest/Diagram`). Model JSON is
+  never trusted as board data: shapes must have a known type and finite
+  coordinates, labels are capped, results are capped (30 shapes, 5 key points,
+  5 ideas), and malformed/empty output raises a controlled error.
 - Hard per-user rate limit (5/hour) plus global `AI_ENABLED` flag: when off or the
-  provider fails, the API returns 503 and **the board keeps working**.
+  provider fails (auth, quota, timeout, outage), the API returns 503 and **the
+  board keeps working**.
+- Provider calls are bounded by `AI_TIMEOUT_MS` (default 60 s). Local CPU models
+  are the slow case — Ollama on a laptop needs a larger value (see `.env.example`).
 - Board context is sent by the client as a base64 Yjs update and parsed with the
   same validation as snapshots; generated shapes are schema-checked before the
   client applies them.
