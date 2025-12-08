@@ -1,0 +1,37 @@
+{
+  "name": "@collabcanvas/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@collabcanvas/shared": "workspace:*",
+    "@collabcanvas/yjs-utils": "workspace:*",
+    "jspdf": "^2.5.2",
+    "konva": "^9.3.20",
+    "lucide-react": "^0.475.0",
+    "next": "^15.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-konva": "^19.0.7",
+    "y-websocket": "^2.0.4",
+    "yjs": "^13.6.18",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "vitest": "^3.1.0"
+  }
+}
