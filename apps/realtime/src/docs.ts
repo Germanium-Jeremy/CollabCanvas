@@ -50,16 +50,15 @@ export class DocManager {
 
     awareness.on(
       "update",
-      (
-        { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
-        origin: unknown,
-      ) => {
+      ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }) => {
         const changedClients = added.concat(updated, removed);
         if (changedClients.length === 0) return;
         const update = awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients);
-        // The origin is the connection that sent the change; skip echoing to it.
-        const except = origin instanceof Object && "readyState" in origin ? (origin as WebSocket) : undefined;
-        this.broadcast(roomId, encodeAwareness(update), except);
+        // Broadcast to every connection INCLUDING the origin, matching the
+        // y-websocket reference server: clients refresh their own awareness
+        // every ~15s and rely on the echo as their liveness signal — they
+        // force-close the socket after 30s of silence.
+        this.broadcast(roomId, encodeAwareness(update));
       },
     );
 
@@ -88,11 +87,11 @@ export class DocManager {
     }
   }
 
-  broadcast(roomId: string, message: Uint8Array, except?: WebSocket): void {
+  broadcast(roomId: string, message: Uint8Array): void {
     const state = this.rooms.get(roomId);
     if (!state) return;
     for (const conn of state.conns) {
-      if (conn !== except && conn.readyState === conn.OPEN) {
+      if (conn.readyState === conn.OPEN) {
         conn.send(message, { binary: true });
       }
     }
