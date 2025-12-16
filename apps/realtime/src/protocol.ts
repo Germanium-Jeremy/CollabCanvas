@@ -45,7 +45,9 @@ export function encodeSyncStep2(doc: Y.Doc, stateVector: Uint8Array): Uint8Array
 export function encodeAwareness(update: Uint8Array): Uint8Array {
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
-  encoding.writeVarUint(encoder, MESSAGE_AWARENESS); // sub-type mirrors y-websocket convention
+  // The y-websocket client writes [type=1][updateBytes] — there is NO sub-type
+  // byte. An extra byte here desyncs the client's decoder (it reads the next
+  // byte as the update length).
   encoding.writeVarUint8Array(encoder, update);
   return encoding.toUint8Array(encoder);
 }
@@ -55,7 +57,7 @@ export function decodeClientMessage(data: Uint8Array): ClientMessage {
     const decoder = decoding.createDecoder(data);
     const messageType = decoding.readVarUint(decoder);
     if (messageType === MESSAGE_AWARENESS) {
-      decoding.readVarUint(decoder); // sub-type (unused)
+      // Client format is [type=1][updateBytes] — no sub-type byte (see encodeAwareness).
       return { kind: "awareness", update: decoding.readVarUint8Array(decoder) };
     }
     if (messageType === MESSAGE_SYNC) {
