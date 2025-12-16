@@ -29,41 +29,66 @@ async function main(): Promise<void> {
   const wss = new WebSocketServer({ server });
 
   wss.on("connection", (ws: WebSocket, request: { url?: string }) => {
-    handleConnection(ws, request).catch((error) => {
-      console.error("[realtime] connection error:", error);
-      ws.close();
+    // Attach the message listener SYNCHRONOUSLY. Auth involves DB awaits, and
+    // y-websocket clients send their initial sync + awareness the instant the
+    // socket opens — messages arriving before auth completes must be queued,
+    // not dropped, or the client loses its initial sync (empty board until
+    // reload) and its first presence update.
+    const queue: Uint8Array[] = [];
+    let processMessage: ((data: Uint8Array) => void) | null = null;
+
+    ws.on("message", (data: unknown) => {
+      if (!(data instanceof Uint8Array)) return;
+      if (processMessage) processMessage(data);
+      else queue.push(data);
     });
+
+    handleConnection(ws, request)
+      .then((handler) => {
+        processMessage = handler;
+        for (const data of queue.splice(0)) {
+          try {
+            handler(data);
+          } catch (error) {
+            // One malformed frame must never kill the connection.
+            console.error("[realtime] dropped queued message:", error instanceof Error ? error.message : error);
+          }
+        }
+      })
+      .catch((error) => {
+        console.error("[realtime] connection error:", error);
+        ws.close();
+      });
   });
 
-  async function handleConnection(ws: WebSocket, request: { url?: string }): Promise<void> {
+  /** Authenticates and joins the connection; returns the message handler to use afterwards. */
+  async function handleConnection(ws: WebSocket, request: { url?: string }): Promise<(data: Uint8Array) => void> {
     // URL format: /<roomId>/<token> — works with the standard y-websocket client.
     const parts = (request.url ?? "").split("?")[0]?.split("/").filter(Boolean) ?? [];
     const roomId = parts[0];
     const token = parts[1];
+    // Failure paths close the socket; a no-op handler keeps the queued-message
+    // flush harmless for the closing connection.
     if (!roomId || !token) {
       ws.close(AUTH_CLOSE_CODE, "invalid url");
-      return;
+      return () => {};
     }
 
     const payload = access.verifyToken(token);
     if (!payload) {
       ws.close(AUTH_CLOSE_CODE, "unauthorized");
-      return;
+      return () => {};
     }
 
     const role = await access.resolveRole(roomId, payload.sub);
     if (!role) {
       ws.close(NO_ACCESS_CLOSE_CODE, "no access");
-      return;
+      return () => {};
     }
 
     const state = await docs.getOrCreate(roomId);
     docs.join(roomId, ws);
 
-    ws.on("message", (data: unknown) => {
-      if (!(data instanceof Uint8Array)) return;
-      handleMessage(roomId, role, data, ws);
-    });
     ws.on("close", () => docs.leave(roomId, ws));
     ws.on("error", () => docs.leave(roomId, ws));
 
@@ -82,6 +107,8 @@ async function main(): Promise<void> {
       else clearInterval(ping);
     }, 30_000);
     ws.on("close", () => clearInterval(ping));
+
+    return (data: Uint8Array) => handleMessage(roomId, role, data, ws);
   }
 
   function handleMessage(roomId: string, role: string, data: Uint8Array, ws: WebSocket): void {
@@ -89,24 +116,30 @@ async function main(): Promise<void> {
     if (!doc) return;
     const message = decodeClientMessage(data);
 
-    switch (message.kind) {
-      case "sync-step1": {
-        ws.send(encodeSyncStep2(doc, message.stateVector), { binary: true });
-        break;
+    try {
+      switch (message.kind) {
+        case "sync-step1": {
+          ws.send(encodeSyncStep2(doc, message.stateVector), { binary: true });
+          break;
+        }
+        case "sync-update": {
+          // Role enforcement: VIEWER connections may not write document state.
+          if (role === "VIEWER") return;
+          Y.applyUpdate(doc, message.update, `room:${roomId}`);
+          break;
+        }
+        case "awareness": {
+          docs.applyAwareness(roomId, message.update, ws);
+          break;
+        }
+        default:
+          // Unknown/malformed messages are dropped.
+          break;
       }
-      case "sync-update": {
-        // Role enforcement: VIEWER connections may not write document state.
-        if (role === "VIEWER") return;
-        Y.applyUpdate(doc, message.update, `room:${roomId}`);
-        break;
-      }
-      case "awareness": {
-        docs.applyAwareness(roomId, message.update, ws);
-        break;
-      }
-      default:
-        // Unknown/malformed messages are dropped.
-        break;
+    } catch (error) {
+      // Client bytes are untrusted: a frame that decodes but contains
+      // malformed Yjs/awareness data is dropped, never fatal to the socket.
+      console.error("[realtime] dropped malformed message:", error instanceof Error ? error.message : error);
     }
   }
 
