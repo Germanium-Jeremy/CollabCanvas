@@ -275,19 +275,19 @@ importers:
         version: 9.3.22
       lucide-react:
         specifier: ^0.475.0
-        version: 0.475.0(react@19.3.0)
+        version: 0.475.0(react@19.2.8)
       next:
         specifier: ^15.3.0
-        version: 15.5.25(@playwright/test@1.63.0)(@types/node@22.20.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 15.5.25(@playwright/test@1.63.0)(@types/node@22.20.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react:
-        specifier: ^19.0.0
-        version: 19.3.0
+        specifier: 19.2.8
+        version: 19.2.8
       react-dom:
-        specifier: ^19.0.0
-        version: 19.3.0(react@19.3.0)
+        specifier: 19.2.8
+        version: 19.2.8(react@19.2.8)
       react-konva:
-        specifier: ^19.0.7
-        version: 19.3.0(@types/react@19.3.0)(konva@9.3.22)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 19.2.7
+        version: 19.2.7(@types/react@19.3.0)(konva@9.3.22)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       y-websocket:
         specifier: ^2.0.4
         version: 2.1.0(yjs@13.6.32)
@@ -2551,26 +2551,26 @@ packages:
   rc9@2.1.2:
     resolution: {integrity: sha512-btXCnMmRIBINM2LDZoEmOogIZU7Qe7zn4BpomSKZ/ykbLObuBdvG+mFq11DL6fjH1DRwHhrlgtYWG96bJiC7Cg==}
 
-  react-dom@19.3.0:
-    resolution: {integrity: sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q==}
+  react-dom@19.2.8:
+    resolution: {integrity: sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ==}
     peerDependencies:
-      react: ^19.3.0
+      react: ^19.2.8
 
-  react-konva@19.3.0:
-    resolution: {integrity: sha512-YEDAdM0PUUUJcTzXAKXMRO2+krSE+hhjGsupWjy6UBtzyFI6f2LkwSYQresl7WwvD+j3fbMy0uj3jtnytKqk9Q==}
+  react-konva@19.2.7:
+    resolution: {integrity: sha512-z/mxVITj2W+MQ8+TeD7ONMnMvy99hj4NJ4UfmWbjJcdeUOm8AZR41cCfwRZTryE3/z4r2/nOyckRNlr0GP+G3w==}
     peerDependencies:
       konva: ^8.0.1 || ^7.2.5 || ^9.0.0 || ^10.0.0
-      react: ^19.3.0
-      react-dom: ^19.3.0
+      react: ^19.2.0
+      react-dom: ^19.2.0
 
-  react-reconciler@0.34.0:
-    resolution: {integrity: sha512-eVibvB1fc9j5Qf1KRkiM3GzRPBdjg2P6G6QV2f3P6Eb3OGMxRBhdg2rrUwjbV5JrQaJj8nOa8uajmmJA5tJWjQ==}
+  react-reconciler@0.33.0:
+    resolution: {integrity: sha512-KetWRytFv1epdpJc3J4G75I4WrplZE5jOL7Yq0p34+OVOKF4Se7WrdIdVC45XsSSmUTlht2FM/fM1FZb1mfQeA==}
     engines: {node: '>=0.10.0'}
     peerDependencies:
-      react: ^19.3.0
+      react: ^19.2.0
 
-  react@19.3.0:
-    resolution: {integrity: sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog==}
+  react@19.2.8:
+    resolution: {integrity: sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==}
     engines: {node: '>=0.10.0'}
 
   readable-stream@3.6.2:
@@ -2629,8 +2629,8 @@ packages:
   safer-buffer@2.1.2:
     resolution: {integrity: sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==}
 
-  scheduler@0.28.0:
-    resolution: {integrity: sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw==}
+  scheduler@0.27.0:
+    resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
 
   semver@7.8.5:
     resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
@@ -4581,10 +4581,10 @@ snapshots:
 
   iterare@1.2.1: {}
 
-  its-fine@2.0.0(@types/react@19.3.0)(react@19.3.0):
+  its-fine@2.0.0(@types/react@19.3.0)(react@19.2.8):
     dependencies:
       '@types/react-reconciler': 0.28.9(@types/react@19.3.0)
-      react: 19.3.0
+      react: 19.2.8
     transitivePeerDependencies:
       - '@types/react'
 
@@ -4793,9 +4793,9 @@ snapshots:
   ltgt@2.2.1:
     optional: true
 
-  lucide-react@0.475.0(react@19.3.0):
+  lucide-react@0.475.0(react@19.2.8):
     dependencies:
-      react: 19.3.0
+      react: 19.2.8
 
   magic-string@0.30.21:
     dependencies:
@@ -4855,15 +4855,15 @@ snapshots:
     dependencies:
       content-type: 2.1.0
 
-  next@15.5.25(@playwright/test@1.63.0)(@types/node@22.20.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+  next@15.5.25(@playwright/test@1.63.0)(@types/node@22.20.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:
       '@next/env': 15.5.25
       '@swc/helpers': 0.5.15
       caniuse-lite: 1.0.30001810
       postcss: 8.4.31
-      react: 19.3.0
-      react-dom: 19.3.0(react@19.3.0)
-      styled-jsx: 5.1.6(react@19.3.0)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+      styled-jsx: 5.1.6(react@19.2.8)
     optionalDependencies:
       '@next/swc-darwin-arm64': 15.5.25
       '@next/swc-darwin-x64': 15.5.25
@@ -5072,29 +5072,29 @@ snapshots:
       defu: 6.1.7
       destr: 2.0.5
 
-  react-dom@19.3.0(react@19.3.0):
+  react-dom@19.2.8(react@19.2.8):
     dependencies:
-      react: 19.3.0
-      scheduler: 0.28.0
+      react: 19.2.8
+      scheduler: 0.27.0
 
-  react-konva@19.3.0(@types/react@19.3.0)(konva@9.3.22)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+  react-konva@19.2.7(@types/react@19.3.0)(konva@9.3.22)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:
       '@types/react-reconciler': 0.33.0(@types/react@19.3.0)
-      its-fine: 2.0.0(@types/react@19.3.0)(react@19.3.0)
+      its-fine: 2.0.0(@types/react@19.3.0)(react@19.2.8)
       konva: 9.3.22
-      react: 19.3.0
-      react-dom: 19.3.0(react@19.3.0)
-      react-reconciler: 0.34.0(react@19.3.0)
-      scheduler: 0.28.0
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+      react-reconciler: 0.33.0(react@19.2.8)
+      scheduler: 0.27.0
     transitivePeerDependencies:
       - '@types/react'
 
-  react-reconciler@0.34.0(react@19.3.0):
+  react-reconciler@0.33.0(react@19.2.8):
     dependencies:
-      react: 19.3.0
-      scheduler: 0.28.0
+      react: 19.2.8
+      scheduler: 0.27.0
 
-  react@19.3.0: {}
+  react@19.2.8: {}
 
   readable-stream@3.6.2:
     dependencies:
@@ -5174,7 +5174,7 @@ snapshots:
 
   safer-buffer@2.1.2: {}
 
-  scheduler@0.28.0: {}
+  scheduler@0.27.0: {}
 
   semver@7.8.5: {}
 
@@ -5310,10 +5310,10 @@ snapshots:
     dependencies:
       '@tokenizer/token': 0.3.0
 
-  styled-jsx@5.1.6(react@19.3.0):
+  styled-jsx@5.1.6(react@19.2.8):
     dependencies:
       client-only: 0.0.1
-      react: 19.3.0
+      react: 19.2.8
 
   superagent@10.3.0(supports-color@7.2.0):
     dependencies:
