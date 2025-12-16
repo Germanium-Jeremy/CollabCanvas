@@ -23,6 +23,13 @@ describe("protocol helpers", () => {
     if (decoded.kind === "awareness") expect(decoded.update).toEqual(update);
   });
 
+  // Pins the y-websocket wire format: [type=1][length][updateBytes].
+  // The client sends and accepts exactly this — an extra sub-type byte breaks it.
+  it("encodes awareness in the exact y-websocket wire format (no sub-type byte)", () => {
+    const update = new Uint8Array([9, 9, 9]);
+    expect(Array.from(encodeAwareness(update))).toEqual([1, 3, 9, 9, 9]);
+  });
+
   it("decodes sync-step1 from a client and replies with a valid diff", () => {
     const doc = new Y.Doc();
     doc.getMap("elements").set("a", { id: "a", type: "rect" });
