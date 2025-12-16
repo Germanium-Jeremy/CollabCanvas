@@ -1,6 +1,8 @@
 "use client";
 
-import Konva from "konva";
+// Type-only: Konva is only referenced in prop/ref types here. The runtime import
+// lives in CanvasStage, which is client-only (see dynamic import below).
+import type Konva from "konva";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { History, Link2, Sparkles, Wifi, WifiOff } from "lucide-react";
 import { WebsocketProvider } from "y-websocket";
@@ -12,13 +14,21 @@ import { env } from "@/lib/env";
 import { colorForUser, exportFileName } from "@/lib/user-colors";
 import { usePresence } from "@/hooks/use-presence";
 import { Button } from "@/components/ui/button";
-import { CanvasStage } from "./CanvasStage";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { HistoryPanel } from "./HistoryPanel";
 import { AiPanel } from "./AiPanel";
 import { PresenceAvatars, PresenceCursors } from "./PresenceLayer";
 import { Toolbar } from "./Toolbar";
+import dynamic from "next/dynamic";
 import { DEFAULT_CAMERA, type Camera, type Tool } from "./types";
+
+// react-konva 19.3's version guard evaluates at import time and fails against
+// Next.js's vendored server React (19.2-canary), so the canvas must never load
+// during SSR. A canvas has nothing to render server-side anyway.
+const CanvasStage = dynamic(() => import("./CanvasStage").then((m) => m.CanvasStage), {
+  ssr: false,
+  loading: () => null,
+});
 
 interface BoardProps {
   roomId: string;
