@@ -1,0 +1,27 @@
+{
+  "name": "collabcanvas",
+  "private": true,
+  "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "dev:web": "turbo run dev --filter=web",
+    "dev:api": "turbo run dev --filter=api",
+    "dev:realtime": "turbo run dev --filter=realtime",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "db:push": "pnpm --filter @collabcanvas/api run db:push",
+    "db:generate": "pnpm --filter @collabcanvas/api run db:generate"
+  },
+  "devDependencies": {
+    "eslint": "^9.25.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.30.0"
+  }
+}
