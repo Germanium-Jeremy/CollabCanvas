@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# testing
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# env & secrets
+.env
+.env.local
+.env.*.local
+
+# misc
+.DS_Store
+*.log
+.turbo/
