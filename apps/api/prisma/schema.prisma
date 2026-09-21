@@ -1,0 +1,111 @@
+// CollabCanvas data model.
+// Relational data (users, rooms, permissions) + board snapshots as Yjs updates (base64).
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String?
+  image        String?
+  passwordHash String?
+  createdAt    DateTime     @default(now())
+  accounts     Account[]
+  memberships  RoomMember[]
+  snapshots    Snapshot[]
+  ownedRooms   Room[]       @relation("OwnedRooms")
+}
+
+model Account {
+  id                String   @id @default(cuid())
+  userId            String
+  provider          String
+  providerAccountId String
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Room {
+  id          String       @id @default(cuid())
+  name        String
+  isPublic    Boolean      @default(false)
+  inviteCode  String       @unique @default(cuid())
+  ownerId     String
+  boardData   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+  owner       User         @relation("OwnedRooms", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     RoomMember[]
+  snapshots   Snapshot[]
+  reports     Report[]
+  blocks      Block[]
+
+  @@index([ownerId])
+  @@index([updatedAt])
+}
+
+model RoomMember {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String
+  role      Role     @default(EDITOR)
+  createdAt DateTime @default(now())
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+}
+
+model Snapshot {
+  id          String   @id @default(cuid())
+  roomId      String
+  version     Int
+  data        String
+  label       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+
+  @@unique([roomId, version])
+  @@index([roomId, version])
+}
+
+model Report {
+  id         String   @id @default(cuid())
+  roomId     String
+  reporterId String?
+  reason     String
+  details    String?
+  createdAt  DateTime @default(now())
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+}
+
+model Block {
+  id           String   @id @default(cuid())
+  roomId       String
+  blockedUserId String
+  createdById  String
+  createdAt    DateTime @default(now())
+  room         Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, blockedUserId])
+}
