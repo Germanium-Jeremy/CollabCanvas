@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { UserMenu } from "@/components/UserMenu";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,9 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/rooms" className="text-slate-600 hover:text-slate-900">
                 My rooms
               </Link>
-              <Link href="/login" className="rounded-md bg-blue-600 px-3 py-1.5 text-white hover:bg-blue-700">
-                Sign in
-              </Link>
+              <UserMenu />
             </nav>
           </div>
         </header>

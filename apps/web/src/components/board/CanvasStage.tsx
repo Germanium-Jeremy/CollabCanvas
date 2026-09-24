@@ -130,6 +130,7 @@ export function CanvasStage(props: CanvasStageProps) {
         return;
       }
       if (!canEdit) return;
+      console.log("[dbg] pointerdown tool=", tool, "canEdit=", canEdit, "point=", point);
 
       if (tool === "eraser") return; // handled per-element click
 
@@ -142,6 +143,7 @@ export function CanvasStage(props: CanvasStageProps) {
 
       if (tool === "text") {
         const element = newElement({ type: "text", x: point.x, y: point.y, text: "", fontSize: 16, color });
+        console.log("[dbg] text branch, element=", element.id);
         onCreate(element);
         setEditingText("");
         onEditingChange(element.id);
@@ -150,6 +152,7 @@ export function CanvasStage(props: CanvasStageProps) {
 
       if (tool === "sticky") {
         const element = newElement({ type: "sticky", x: point.x, y: point.y, width: 180, height: 140, text: "", color });
+        console.log("[dbg] sticky branch, element=", element.id);
         onCreate(element);
         setEditingText("");
         onEditingChange(element.id);

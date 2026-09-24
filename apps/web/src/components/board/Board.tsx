@@ -43,6 +43,7 @@ function readElements(ymap: Y.Map<unknown>): BoardElement[] {
   ymap.forEach((value) => {
     const parsed = boardElementSchema.safeParse(value);
     if (parsed.success) elements.push(parsed.data);
+    else console.log("[dbg] readElements parse failed:", JSON.stringify(value), JSON.stringify(parsed.error.issues.slice(0, 3)));
   });
   return elements.sort((a, b) => a.z - b.z || a.createdAt - b.createdAt);
 }
@@ -75,36 +76,78 @@ export function Board({ roomId, roomName, role, inviteCode, user }: BoardProps) 
   // ---- Realtime connection lifecycle ----
   useEffect(() => {
     let destroyed = false;
-    let localDoc: Y.Doc | null = null;
-    let localProvider: WebsocketProvider | null = null;
+    let active: { doc: Y.Doc; provider: WebsocketProvider } | null = null;
+    let connecting = false;
+    let authReconnects = 0;
 
-    (async () => {
+    const teardown = () => {
+      if (active) {
+        active.provider.destroy();
+        active.doc.destroy();
+        active = null;
+      }
+    };
+
+    /**
+     * Connect (or reconnect) with a fresh access token. Access tokens expire
+     * after 15 minutes; y-websocket would otherwise retry forever with the
+     * stale token and be rejected with close code 4401.
+     */
+    async function connect(): Promise<void> {
+      if (destroyed || connecting) return;
+      connecting = true;
       try {
         const { token } = await api<{ token: string }>("/auth/token");
         if (destroyed) return;
-        localDoc = new Y.Doc();
-        localProvider = new WebsocketProvider(env.wsUrl, `${roomId}/${token}`, localDoc);
 
-        const ymap = localDoc.getMap<unknown>(ELEMENTS_MAP_KEY);
+        const previous = active;
+        const doc = new Y.Doc();
+        // Carry over local state (possibly unsynced edits) from the old doc.
+        if (previous) Y.applyUpdate(doc, Y.encodeStateAsUpdate(previous.doc));
+        const provider = new WebsocketProvider(env.wsUrl, `${roomId}/${token}`, doc);
+        active = { doc, provider };
+        if (previous) {
+          previous.provider.destroy();
+          previous.doc.destroy();
+        }
+
+        const ymap = doc.getMap<unknown>(ELEMENTS_MAP_KEY);
         const pushElements = () => setElements(readElements(ymap));
         ymap.observe(pushElements);
         pushElements();
 
-        localProvider.on("status", (event: { status: string }) => {
+        provider.on("status", (event: { status: string }) => {
           setConnected(event.status === "connected");
+          if (event.status === "connected") authReconnects = 0;
+        });
+        provider.on("connection-close", (event: unknown) => {
+          // y-websocket types this as CloseEvent | null; we only need the code.
+          const code = (event as { code?: number } | null)?.code ?? 0;
+          if (destroyed || code !== 4401) return;
+          // Bound the loop in case the server keeps rejecting fresh tokens.
+          if (++authReconnects > 3) {
+            setConnectionError("Session expired. Please sign in again.");
+            return;
+          }
+          void connect().catch(() => {
+            if (!destroyed) setConnectionError("Session expired. Please sign in again.");
+          });
         });
 
-        setDoc(localDoc);
-        setProvider(localProvider);
-      } catch {
-        if (!destroyed) setConnectionError("Could not join the live session. Try reloading.");
+        setDoc(doc);
+        setProvider(provider);
+      } finally {
+        connecting = false;
       }
-    })();
+    }
+
+    connect().catch(() => {
+      if (!destroyed) setConnectionError("Could not join the live session. Try reloading.");
+    });
 
     return () => {
       destroyed = true;
-      localProvider?.destroy();
-      localDoc?.destroy();
+      teardown();
     };
   }, [roomId]);
 
@@ -138,11 +181,13 @@ export function Board({ roomId, roomName, role, inviteCode, user }: BoardProps) 
   // ---- Mutations ----
   const addElements = useCallback(
     (newElements: BoardElement[]) => {
+      console.log("[dbg] addElements n=", newElements.length, "doc=", !!doc, "canEdit=", canEdit);
       if (!doc || !canEdit) return;
       const ymap = doc.getMap<unknown>(ELEMENTS_MAP_KEY);
       doc.transact(() => {
         for (const element of newElements) ymap.set(element.id, element);
       });
+      console.log("[dbg] ymap size after set:", ymap.size);
     },
     [canEdit, doc],
   );
@@ -159,6 +204,7 @@ export function Board({ roomId, roomName, role, inviteCode, user }: BoardProps) 
 
   const deleteElement = useCallback(
     (id: string) => {
+      console.log("[dbg] deleteElement", id, new Error().stack?.split("\n").slice(1, 4).join(" | "));
       if (!doc || !canEdit) return;
       doc.getMap<unknown>(ELEMENTS_MAP_KEY).delete(id);
       setSelectedId((current) => (current === id ? null : current));
