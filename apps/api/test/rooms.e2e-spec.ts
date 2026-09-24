@@ -116,6 +116,9 @@ describe.skipIf(!dbUp)("room CRUD + permission enforcement", () => {
         .send({ name: "Boundary room", isPublic: true });
       roomId = room.body.id;
       viewer = await registerUser(app, "rooms-viewer@example.com", "Viewer");
+      // Role assignment targets existing members only — the viewer joins first,
+      // matching the real app flow (join, then the owner adjusts the role).
+      await request(app.getHttpServer()).post(`/api/rooms/${roomId}/join`).set(auth(viewer.cookie)).send({});
       const res = await request(app.getHttpServer())
         .patch(`/api/rooms/${roomId}/members`)
         .set(auth(owner.cookie))
