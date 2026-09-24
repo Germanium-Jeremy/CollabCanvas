@@ -1,5 +1,14 @@
-/** Auth cookie holding the JWT (httpOnly). Shared by web, API and realtime server. */
+/** Auth cookie holding the short-lived access JWT (httpOnly). Shared by web, API and realtime server. */
 export const AUTH_COOKIE_NAME = "cc_token";
+
+/** Auth cookie holding the long-lived refresh token (httpOnly). Not read by the realtime server. */
+export const REFRESH_COOKIE_NAME = "cc_refresh";
+
+/** Access token lifetime. Refreshed silently by the web client via POST /api/auth/refresh. */
+export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+
+/** Refresh session lifetime: after this the user must sign in again. */
+export const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /** Max board text length for sticky notes / text elements (input sanitization). */
 export const MAX_TEXT_LENGTH = 2000;

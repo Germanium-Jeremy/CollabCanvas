@@ -13,8 +13,10 @@ plan together with low latency, live presence, board history and export.
   multi-user editing, live cursors, "is editing" indicators, offline tolerance.
 - **Board tools** — freehand pen, rectangles, ellipses, text, sticky notes,
   arrows, eraser; move/resize; undo/redo; zoom & pan.
-- **Auth & permissions** — email/password + GitHub/Google OAuth, JWT in httpOnly
-  cookies, room roles (OWNER/EDITOR/VIEWER) enforced on API *and* realtime server.
+- **Auth & permissions** — email/password + GitHub/Google OAuth, 15-minute
+  access JWT + 7-day rotating refresh session (httpOnly cookies, hashed and
+  DB-backed, revoked on logout), room roles (OWNER/EDITOR/VIEWER) enforced on
+  API *and* realtime server.
 - **Rooms** — public/private rooms with invite links, recent rooms list, member
   management, report/block (abuse basics).
 - **AI (cost-controlled)** — summarize board, suggest next steps, generate diagram

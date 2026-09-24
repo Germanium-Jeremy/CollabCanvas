@@ -2,7 +2,7 @@ import tseslint from "typescript-eslint";
 
 // Minimal shared lint config: TypeScript correctness first.
 export default tseslint.config(
-  { ignores: ["**/dist/**", "**/.next/**", "**/coverage/**", "**/node_modules/**"] },
+  { ignores: ["**/dist/**", "**/.next/**", "**/coverage/**", "**/node_modules/**", "**/next-env.d.ts"] },
   ...tseslint.configs.recommended.map((c) => ({
     ...c,
     files: ["**/*.ts", "**/*.tsx"],
