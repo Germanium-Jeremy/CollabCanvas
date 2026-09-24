@@ -7,3 +7,7 @@ process.env.DATABASE_URL =
 process.env.AI_ENABLED = "true";
 process.env.AI_PROVIDER = "mock";
 process.env.LOG_LEVEL = "silent";
+// Tests must use the in-memory rate limiter: a developer's REDIS_URL would share
+// one bucket across spec files (and reruns), causing cross-file 429s. CI has the
+// same shape (no Redis) so this also keeps local and CI behavior identical.
+delete process.env.REDIS_URL;
