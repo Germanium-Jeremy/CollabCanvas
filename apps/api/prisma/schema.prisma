@@ -25,6 +25,7 @@ model User {
   accounts     Account[]
   memberships  RoomMember[]
   snapshots    Snapshot[]
+  sessions     Session[]
   ownedRooms   Room[]       @relation("OwnedRooms")
 }
 
@@ -37,6 +38,21 @@ model Account {
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+}
+
+/// DB-backed refresh session: hashed token so a DB leak cannot mint logins;
+/// rows enable logout-everywhere revocation and per-device expiry.
+model Session {
+  id            String   @id @default(cuid())
+  userId        String
+  tokenHash     String   @unique
+  expiresAt     DateTime
+  lastUsedAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Room {
