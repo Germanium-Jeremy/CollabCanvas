@@ -12,9 +12,11 @@ import {
   Query,
   Req,
   Res,
+  UnauthorizedException,
 } from "@nestjs/common";
-import { AUTH_RATE_LIMIT_PER_15MIN } from "@collabcanvas/shared";
+import { AUTH_RATE_LIMIT_PER_15MIN, REFRESH_COOKIE_NAME } from "@collabcanvas/shared";
 import type { Request, Response } from "express";
+import jwt from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
 import { getEnv } from "../config/env";
 import { CurrentUser, Public } from "../common/auth.decorators";
@@ -41,9 +43,9 @@ export class AuthController {
     @Body(new ZodValidationPipe(registerSchema)) dto: RegisterInput,
   ) {
     await this.assertAuthRateLimit(request);
-    const { user, token } = await this.auth.register(dto);
-    this.auth.setAuthCookie(response, token);
-    return { user, token };
+    const { user, tokens } = await this.auth.register(dto);
+    this.auth.setAuthCookies(response, tokens.accessToken, tokens.refreshToken);
+    return { user, token: tokens.accessToken };
   }
 
   @Public()
@@ -55,16 +57,45 @@ export class AuthController {
     @Body(new ZodValidationPipe(loginSchema)) dto: LoginInput,
   ) {
     await this.assertAuthRateLimit(request);
-    const { user, token } = await this.auth.login(dto);
-    this.auth.setAuthCookie(response, token);
-    return { user, token };
+    const { user, tokens } = await this.auth.login(dto);
+    this.auth.setAuthCookies(response, tokens.accessToken, tokens.refreshToken);
+    return { user, token: tokens.accessToken };
+  }
+
+  /**
+   * Silent session renewal: rotates the refresh session and re-issues both
+   * cookies. The web client calls this transparently when an access token
+   * expires (single-flight, retried once per request).
+   */
+  @Public()
+  @Post("refresh")
+  @HttpCode(200)
+  async refresh(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const refreshToken = request.cookies?.[REFRESH_COOKIE_NAME];
+    if (!refreshToken) throw new UnauthorizedException({ error: "no_refresh_token" });
+    const tokens = await this.auth.rotateRefreshSession(refreshToken);
+    this.auth.setAuthCookies(response, tokens.accessToken, tokens.refreshToken);
+    const user = await this.prisma.user.findUnique({ where: { id: this.readSubject(tokens.accessToken) } });
+    if (!user) throw new UnauthorizedException({ error: "invalid_refresh_token" });
+    return { user: this.auth.toUserDto(user) };
+  }
+
+  private readSubject(accessToken: string): string {
+    const payload = jwt.decode(accessToken) as { sub?: string } | null;
+    if (!payload?.sub) throw new UnauthorizedException({ error: "invalid_refresh_token" });
+    return payload.sub;
   }
 
   @Public()
   @Post("logout")
   @HttpCode(200)
-  logout(@Res({ passthrough: true }) response: Response) {
-    this.auth.clearAuthCookie(response);
+  async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
+    const refreshToken = request.cookies?.[REFRESH_COOKIE_NAME];
+    if (refreshToken) await this.auth.revokeRefreshSession(refreshToken);
+    this.auth.clearAuthCookies(response);
     return { ok: true };
   }
 
@@ -118,8 +149,8 @@ export class AuthController {
 
       const profile = await fetchOAuthProfile(provider, code);
       const user = await this.auth.findOrCreateOAuthUser(profile);
-      const token = this.auth.signToken(user);
-      this.auth.setAuthCookie(response, token);
+      const { refreshToken } = await this.auth.createRefreshSession(user.id);
+      this.auth.setAuthCookies(response, this.auth.signToken(user), refreshToken);
       response.clearCookie(oauthStateCookie.name, { path: "/" });
       response.redirect(302, `${webOrigin}/rooms`);
     } catch (error) {
