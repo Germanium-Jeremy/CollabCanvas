@@ -38,7 +38,9 @@ export class RoomsController {
       name: room.name,
       isPublic: room.isPublic,
       ownerId: room.ownerId,
-      inviteCode: room.isPublic ? null : room.inviteCode,
+      // Invite codes are owner-only: any member with the code could mint
+      // further memberships for a private room.
+      inviteCode: !room.isPublic && role === "OWNER" ? room.inviteCode : null,
       role,
       updatedAt: room.updatedAt,
     };
