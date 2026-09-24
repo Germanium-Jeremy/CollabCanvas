@@ -1,4 +1,4 @@
-import { Body, Controller, Inject, Param, Post } from "@nestjs/common";
+import { Body, Controller, HttpCode, Inject, Param, Post } from "@nestjs/common";
 import { aiRequestSchema, type AiRequestInput } from "@collabcanvas/shared";
 import { CurrentUser } from "../common/auth.decorators";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -14,6 +14,7 @@ export class AiController {
 
   /** AI actions require edit rights: cost control and viewer write-safety. */
   @Post(":id/ai")
+  @HttpCode(200)
   async run(
     @CurrentUser() user: { sub: string },
     @Param("id") id: string,
