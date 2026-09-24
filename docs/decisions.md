@@ -66,3 +66,29 @@ Short ADR-style entries for the non-obvious choices.
   is set, in-memory Map otherwise, fail-open to memory if Redis errors.
 - **Why**: zero required infrastructure for local dev (spec: user runs Postgres
   locally, no Docker), one env var to productionize.
+
+## ADR-009 — Short-lived access JWT + hashed, rotating refresh sessions
+
+- **Decision**: access JWT lives 15 minutes; the 7-day session is an opaque
+  random token in an httpOnly cookie whose SHA-256 hash is stored in a `Session`
+  table. `POST /api/auth/refresh` rotates it (delete row, mint new one).
+- **Why**: a 7-day *JWT* cannot be revoked (logout does nothing server-side) and
+  a leaked one is valid for a week. An opaque DB-backed token gives revocation,
+  theft detection via rotation, logout-everywhere, and a session registry —
+  while keeping the fast, stateless JWT path for API/websocket auth.
+- **Trade-off**: refresh adds one DB round-trip every ~15 min per active user.
+  Rotation is delete-then-create, not a single transaction; a strict
+  implementation would track token families to invalidate on replay — noted as
+  future hardening.
+
+## ADR-010 — Header session state is client-fetched, keyed on route changes
+
+- **Decision**: the header (`UserMenu`) checks `/auth/me` on mount and on every
+  App Router route change; there is no global session context/provider.
+- **Why**: the root layout persists across client-side navigations, so a
+  mount-only check goes stale right after login (client-side redirect never
+  remounts the header). Route-keyed re-checks fix the common transitions with
+  one small component instead of a provider threading through the tree.
+- **Trade-off**: an extra `/auth/me` call per navigation (cheap, indexed lookup).
+  A truly global store (React context or TanStack Query) would dedupe these if
+  the number of session-aware components grows.

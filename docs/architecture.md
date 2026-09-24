@@ -39,20 +39,36 @@ packages/
 
 ## Auth flow
 
-NestJS owns authentication (no NextAuth in the middle):
+NestJS owns authentication (no NextAuth in the middle). Sessions are
+**short-lived access JWT + DB-backed refresh session**:
 
-1. **Email/password**: `POST /api/auth/register|login` — bcrypt hashes, JWT issued.
+1. **Email/password**: `POST /api/auth/register|login` — bcrypt hashes; on
+   success the API issues an access JWT (15 min) *and* creates a refresh
+   session (7 days, opaque random token stored only as a SHA-256 hash).
 2. **OAuth (GitHub/Google)**: API starts the flow (`/api/auth/oauth/:provider`),
    stores a state cookie, exchanges the code server-side, upserts
-   `User` + `Account`, issues a JWT. Google `id_token` audience is verified.
-3. The JWT is stored in an **httpOnly cookie** (`cc_token`, SameSite=Lax) and is
-   also returned in the response body for non-browser clients.
-4. The web app's middleware only checks cookie *presence* for route protection;
+   `User` + `Account`, issues the same session pair. Google `id_token`
+   audience is verified.
+3. Both tokens are **httpOnly cookies** (`cc_token` 15 min, `cc_refresh`
+   7 days, SameSite=Lax); the access JWT is also returned in the response body
+   for non-browser clients.
+4. **Silent renewal**: when an API call 401s with an expired access token, the
+   web client calls `POST /api/auth/refresh` (single-flight — concurrent 401s
+   share one refresh) and retries the original request once. Rotation deletes
+   the used session row and mints a new one, so a stolen refresh token is
+   useless after first use. After 7 days (or logout) the user signs in again.
+5. The web app's middleware only checks cookie *presence* for route protection;
    actual authorization happens in the API (JWT verify + room permission checks).
-5. WebSockets authenticate by fetching `GET /api/auth/token` (cookie-authenticated)
-   and passing the token in the socket URL. Tokens never touch localStorage.
-6. Rate limiting: login/register are limited per IP (20 / 15 min); AI actions per
+6. WebSockets authenticate by fetching `GET /api/auth/token` (cookie-authenticated)
+   and passing the token in the socket URL. If a reconnect is rejected with close
+   code 4401 (expired access token), the client fetches a fresh token and
+   rebuilds the connection, carrying over unsynced local edits. Tokens never
+   touch localStorage.
+7. Rate limiting: login/register are limited per IP (20 / 15 min); AI actions per
    user (5 / hour). In-memory fixed window; swaps to Redis when `REDIS_URL` is set.
+8. `Session` rows double as a session registry: logout deletes the row (the
+   cookie alone becomes worthless), and `revokeAllSessions()` supports a future
+   "sign out everywhere" feature. Expired rows can be pruned by a cron job.
 
 Authorization is pure and shared: `effectiveRole()` in `@collabcanvas/shared` is
 used by the API guards *and* the realtime server, so both enforce identical rules.
