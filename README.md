@@ -122,6 +122,51 @@ docs/         architecture.md · decisions.md · demo.md
 
 CI runs lint → typecheck → unit → integration (Postgres service) → build → E2E.
 
+## Deployment
+
+Three Render web services run the three apps; Postgres lives in Neon. The
+source of truth is [`render.yaml`](render.yaml) — validate it with
+`render blueprints validate ./render.yaml`.
+
+| Service | Role | Health check |
+| --- | --- | --- |
+| `collabcanvas-web` | Next.js UI | `/` |
+| `collabcanvas-api` | NestJS REST API | `/api/health` |
+| `collabcanvas-realtime` | Yjs WebSocket server | `/` |
+
+### Why the web service proxies `/api/*`
+
+Web and API are separate hosts, but auth sets httpOnly cookies on whichever
+origin issues them. A cross-origin call would leave the web domain unable to
+read the session cookie, so `/rooms/*` would bounce to `/login` forever. Next.js
+therefore rewrites `/api/*` to the API (`API_PROXY_TARGET`) and the client
+calls stay same-origin. This also keeps the OAuth state cookie valid — the
+callback must travel back through the proxy, which is why the API's
+`API_PUBLIC_URL` is set to the **web** origin, not the API's.
+
+### Required env vars
+
+Set per service in the Render dashboard (or with `scripts/set-render-env.mjs`):
+
+- **api** — `DATABASE_URL` (Neon pooled URL), `WEB_ORIGIN` and `API_PUBLIC_URL`
+  (both the web origin), `HF_TOKEN` + `HF_MODEL` if AI is enabled.
+- **realtime** — `DATABASE_URL` and the **same `JWT_SECRET` as the API**; a
+  mismatch makes every WebSocket handshake fail auth.
+- **web** — `API_PROXY_TARGET` (API origin), `NEXT_PUBLIC_WS_URL` (use `wss://`),
+  `NEXT_PUBLIC_APP_URL`.
+
+`NEXT_PUBLIC_*` vars are inlined at build time, so changing them requires a
+rebuild, not just a restart.
+
+### Notes on the free tier
+
+- Migrations run as the last step of the API build (`prisma db push`) because
+  Render rejects `preDeployCommand` on free services. On a paid plan, move it to
+  `preDeployCommand` so it runs before the new instance goes live.
+- Free instances cold-start and may sleep. `collabcanvas-realtime` sets
+  `RENDER_WEB_SERVICE_FREE_PLAN_SLEEP=0` because a sleeping WebSocket server
+  silently drops live collaboration sessions.
+
 ## Security notes
 
 - Secrets only via env (`Zod`-validated); `.env` is gitignored.

@@ -149,3 +149,23 @@ Short ADR-style entries for the non-obvious choices.
   validation is defensive and a non-compliant model degrades to 503 instead of
   a partial answer. Routing knobs (provider pin, endpoint URL, model ids) are
   env vars — no provider picker in the UI, and credentials stay server-side.
+
+## ADR-014 — Same-origin API proxy between the web and API services
+
+- **Decision**: the deployed web app calls `/api/*` **relative to its own
+  origin**; Next.js rewrites those requests to the API service
+  (`API_PROXY_TARGET`). `NEXT_PUBLIC_API_URL` is empty in production, and the
+  API's `API_PUBLIC_URL` is set to the **web** origin rather than its own.
+- **Why**: web and API are separate Render hosts, but session state lives in
+  httpOnly cookies scoped to the origin that sets them. Calling the API
+  cross-origin would set `cc_token`/`cc_refresh` on the API host, leaving the
+  web middleware unable to see them — `/rooms/*` would redirect to `/login`
+  forever, and the OAuth state cookie would fail the same way. `API_PUBLIC_URL`
+  must therefore be the web origin so the OAuth callback returns *through* the
+  proxy, where the state cookie is still valid.
+- **Trade-off**: one extra network hop per API request and the API is not
+  directly reachable from the browser. The alternative — a shared cookie
+  domain with `SameSite=None; Secure` — is looser security and breaks the day a
+  custom domain is added, so it was rejected. `NEXT_PUBLIC_API_URL` still lets
+  local dev talk to `http://localhost:3001` directly, where same-origin holds
+  by definition.

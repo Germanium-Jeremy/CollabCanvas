@@ -6,6 +6,16 @@
 #
 # Region is oregon (cheapest default). The Neon project is in aws-us-east-2;
 # these are different providers, so the DB connects over the public internet.
+#
+# Live URLs (Render assigns a suffix when the bare name is taken):
+#   web      https://collabcanvas-web-96su.onrender.com
+#   api      https://collabcanvas-api-i8x4.onrender.com
+#   realtime https://collabcanvas-realtime.onrender.com
+#
+# Cross-service URLs are sync:false rather than hardcoded: the API needs
+# WEB_ORIGIN/API_PUBLIC_URL pointed at the web origin, and the web service
+# needs API_PROXY_TARGET pointed at the API. Those are set once in the
+# dashboard (or via scripts/set-render-env.mjs), not by this file.
 
 databases: []
 

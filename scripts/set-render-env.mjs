@@ -37,32 +37,32 @@ const envVars = pairs.map((pair) => {
 });
 
 // PUT replaces the whole env var set, so merge with what is already configured.
-const existing = await fetch(`${API_HOST}/services/${serviceId}/env-vars`, {
-  headers: { Authorization: `Bearer ${readApiKey()}` },
-}).then(async (r) => {
-  if (!r.ok) throw new Error(`list env vars failed: ${r.status} ${await r.text()}`);
-  return r.json();
-});
+// The list endpoint returns one page of { envVar: { key, value }, cursor } — a
+// flat { key, value } list would silently send empty keys.
+const apiKey = readApiKey();
+const existing = [];
+let cursor;
+do {
+  const url = new URL(`${API_HOST}/services/${serviceId}/env-vars`);
+  if (cursor) url.searchParams.set("cursor", cursor);
+  const page = await fetch(url, {
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+  });
+  if (!page.ok) throw new Error(`list env vars failed: ${page.status} ${await page.text()}`);
+  const body = await page.json();
+  existing.push(...body.map((e) => e.envVar));
+  cursor = body.at(-1)?.cursor;
+} while (cursor);
 
 const merged = new Map(existing.map((e) => [e.key, e.value]));
 for (const { key, value } of envVars) merged.set(key, value);
 
-// Preserve secret/plaintext flags already set on unchanged keys.
-const preserved = new Map(existing.map((e) => [e.key, e]));
-
-const body = [...merged].map(([key, value]) => ({
-  key,
-  value,
-  type: preserved.get(key)?.type ?? "plaintext",
-  ...(preserved.get(key)?.keyValueGroupId && {
-    keyValueGroupId: preserved.get(key).keyValueGroupId,
-  }),
-}));
+const body = [...merged].map(([key, value]) => ({ key, value, type: "plaintext" }));
 
 const response = await fetch(`${API_HOST}/services/${serviceId}/env-vars`, {
   method: "PUT",
   headers: {
-    Authorization: `Bearer ${readApiKey()}`,
+    Authorization: `Bearer ${apiKey}`,
     "Content-Type": "application/json",
     Accept: "application/json",
   },
