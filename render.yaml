@@ -113,7 +113,7 @@ services:
     buildCommand: >-
       corepack enable &&
       pnpm install --frozen-lockfile &&
-      pnpm --filter @collabcanvas/web run build
+      pnpm --filter @collabcanvas/web... build
     startCommand: pnpm --filter @collabcanvas/web run start
     healthCheckPath: /
     envVars:
