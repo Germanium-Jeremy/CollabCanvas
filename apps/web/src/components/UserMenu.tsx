@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { api } from "@/lib/api";
+import { env } from "@/lib/env";
 import { colorForUser } from "@/lib/user-colors";
 
 interface SessionUser {
@@ -55,7 +56,7 @@ export function UserMenu() {
   const signOut = useCallback(async () => {
     setSigningOut(true);
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"}/api/auth/logout`, {
+      await fetch(`${env.apiUrl}/api/auth/logout`, {
         method: "POST",
         credentials: "include",
       });

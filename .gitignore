@@ -23,3 +23,5 @@ blob-report/
 .DS_Store
 *.log
 .turbo/
+.agents
+.neon
