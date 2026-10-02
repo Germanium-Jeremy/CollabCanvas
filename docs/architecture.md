@@ -30,6 +30,10 @@ packages/
 
 - URL format `ws://host/<roomId>/<jwt>` — compatible with the standard
   `y-websocket` client; the JWT authenticates the socket on connect.
+- The browser connects to `wss://<realtime-host>` (the service's Render URL).
+  `NEXT_PUBLIC_WS_URL` is a **build-time** env var for the web service only,
+  so it goes in `render.yaml` (see `scripts/set-render-env.mjs`); it is never
+  set on the realtime service (a server-only host, no browser).
 - Roles are re-checked against Postgres on connect and cached for 30 s.
 - **Viewer writes are dropped server-side** (sync updates from VIEWER connections
   are ignored); the client additionally disables tools, so enforcement is
