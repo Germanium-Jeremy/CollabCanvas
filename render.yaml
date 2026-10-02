@@ -106,12 +106,15 @@ services:
     region: oregon
     branch: root
     repo: https://github.com/Germanium-Jeremy/CollabCanvas
-    rootDir: apps/web
+    # Root dir stays at the repo root: pnpm-workspace.yaml and the lockfile live
+    # there, so `pnpm install` in apps/web alone would not link @collabcanvas/*
+    # and `next build` fails to resolve them.
+    rootDir: .
     buildCommand: >-
       corepack enable &&
       pnpm install --frozen-lockfile &&
-      pnpm run build
-    startCommand: pnpm run start
+      pnpm --filter @collabcanvas/web run build
+    startCommand: pnpm --filter @collabcanvas/web run start
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION
