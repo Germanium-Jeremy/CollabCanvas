@@ -134,7 +134,11 @@ services:
       # Next.js inlines rewrites into the server bundle.
       - key: API_PROXY_TARGET
         sync: false
+      # Realtime WebSocket URL. Must be wss:// (Render serves WebSocket over
+      # HTTPS at the host's URL). Set once here or via scripts/set-render-env.mjs;
+      # it is build-time-only for the web service, so it travels in the
+      # Blueprint rather than the runtime env.
       - key: NEXT_PUBLIC_WS_URL
-        sync: false
+        value: "wss://collabcanvas-realtime.onrender.com"
       - key: NEXT_PUBLIC_APP_URL
         sync: false
