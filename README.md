@@ -89,6 +89,17 @@ at `${API_PUBLIC_URL}/api/auth/oauth/<provider>/callback`.
 | Command | What it does |
 | --- | --- |
 | `pnpm dev` | Run web + api + realtime in parallel |
+| `pnpm test:e2e` | Playwright suite (boots api + realtime + web) |
+
+### Deployed URLs (Render)
+
+| Service | Public URL | Realtime WebSocket URL |
+|---|---|---|
+| web | `https://collabcanvas-web-96su.onrender.com` | — |
+| api | `https://collabcanvas-api-i8x4.onrender.com` | — |
+| realtime | — | `wss://collabcanvas-realtime.onrender.com` |
+
+The web app passes `NEXT_PUBLIC_WS_URL=wss://collabcanvas-realtime.onrender.com` to the browser (see `render.yaml`). The realtime server itself is **not** configured with a browser URL — it reads `PORT`/`REALTIME_PORT` and serves `ws://` at its own Render host. Never put a `NEXT_PUBLIC_*` var on the realtime service; it is a server-only service.
 | `pnpm build` | Build all apps (turbo) |
 | `pnpm typecheck` | TypeScript strict across the monorepo |
 | `pnpm lint` | ESLint (typescript-eslint) |
@@ -152,7 +163,7 @@ Set per service in the Render dashboard (or with `scripts/set-render-env.mjs`):
   (both the web origin), `HF_TOKEN` + `HF_MODEL` if AI is enabled.
 - **realtime** — `DATABASE_URL` and the **same `JWT_SECRET` as the API**; a
   mismatch makes every WebSocket handshake fail auth.
-- **web** — `API_PROXY_TARGET` (API origin), `NEXT_PUBLIC_WS_URL` (use `wss://`),
+- **web** — `API_PROXY_TARGET` (API origin), `NEXT_PUBLIC_WS_URL` (set to `wss://collabcanvas-realtime.onrender.com` in `render.yaml`),
   `NEXT_PUBLIC_APP_URL`.
 
 `NEXT_PUBLIC_*` vars are inlined at build time, so changing them requires a
