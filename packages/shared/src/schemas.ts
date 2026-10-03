@@ -153,9 +153,8 @@ export const boardElementSchema: z.ZodType<BoardElement> = z.discriminatedUnion(
 ]);
 
 // ---- AI ----
-
 export const aiRequestSchema = z.object({
-  action: z.enum(["summarize", "suggest", "diagram"]),
+  action: z.enum(["summarize", "suggest", "diagram", "auto"]),
   prompt: z.string().max(MAX_TEXT_LENGTH).optional(),
   /** Optional fresh board state (base64 Yjs update) sent by the client. */
   boardBase64: z
@@ -164,7 +163,6 @@ export const aiRequestSchema = z.object({
     .refine((v) => /^[A-Za-z0-9+/=]*$/.test(v), "must be base64")
     .optional(),
 });
-
 export type AiRequestInput = z.infer<typeof aiRequestSchema>;
 
 // ---- Reports / abuse ----

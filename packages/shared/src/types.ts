@@ -96,7 +96,12 @@ export interface PresenceUser {
 
 // ---- AI contracts ----
 
-export type AiAction = "summarize" | "suggest" | "diagram";
+export type AiAction =
+  | "summarize"
+  | "suggest"
+  | "diagram"
+  /** The server picks the most useful response type from the prompt + board context. */
+  | "auto";
 
 export interface AiSummarizeResult {
   summary: string;
@@ -121,4 +126,18 @@ export interface AiDiagramResult {
   shapes: AiDiagramShape[];
 }
 
-export type AiResult = AiSummarizeResult | AiSuggestResult | AiDiagramResult;
+/** When `action=auto`, the server returns a short note about what it chose. */
+export interface AiAutoResult {
+  chosenAction: "summarize" | "suggest" | "diagram";
+  note: string;
+  summary?: string;
+  keyPoints?: string[];
+  ideas?: string[];
+  shapes?: AiDiagramShape[];
+}
+
+export type AiResult =
+  | AiSummarizeResult
+  | AiSuggestResult
+  | AiDiagramResult
+  | AiAutoResult;
