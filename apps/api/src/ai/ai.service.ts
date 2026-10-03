@@ -43,6 +43,8 @@ export class AiService {
           return await this.provider.suggest(context);
         case "diagram":
           return await this.provider.diagram(dto.prompt ?? "", context);
+        case "auto":
+          return await this.provider.auto(dto.prompt ?? "", context);
       }
     } catch (error) {
       // Graceful degradation: AI provider failures must never take the board down.

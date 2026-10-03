@@ -1,4 +1,4 @@
-import type { AiDiagramResult, AiDiagramShape, AiSuggestResult, AiSummarizeResult } from "@collabcanvas/shared";
+import type { AiAutoResult, AiDiagramResult, AiDiagramShape, AiSuggestResult, AiSummarizeResult } from "@collabcanvas/shared";
 import type { BoardContext } from "@collabcanvas/yjs-utils";
 import type { InferenceClient } from "@huggingface/inference";
 import type { GoogleGenAI } from "@google/genai";
@@ -9,6 +9,8 @@ export interface AiProvider {
   summarize(context: BoardContext): Promise<AiSummarizeResult>;
   suggest(context: BoardContext): Promise<AiSuggestResult>;
   diagram(prompt: string, context: BoardContext): Promise<AiDiagramResult>;
+  /** The server chooses the response type from the prompt + board context. */
+  auto(prompt: string, context: BoardContext): Promise<AiAutoResult>;
 }
 
 // ---- Prompt builders (pure, unit-testable) ----
@@ -20,15 +22,12 @@ export function contextBlock(context: BoardContext): string {
   const texts = context.texts.length ? context.texts.map((t) => `- ${t}`).join("\n") : "(no text content)";
   return `Board contents: ${context.elementCount} elements (${counts || "empty"}).\nText content:\n${texts}`;
 }
-
 export function buildSummarizePrompt(context: BoardContext): string {
   return `${contextBlock(context)}\n\nSummarize this board in one short paragraph, then list up to 5 key points.`;
 }
-
 export function buildSuggestPrompt(context: BoardContext): string {
   return `${contextBlock(context)}\n\nSuggest 3-5 concrete next steps for the team based on this board.`;
 }
-
 export function buildDiagramPrompt(prompt: string): string {
   return [
     "Convert the following description into a simple diagram made of shapes.",
@@ -36,6 +35,33 @@ export function buildDiagramPrompt(prompt: string): string {
     "Use arrows (from left/top edge to right/bottom edge via x/y and width/height as direction hints) to connect related items. Lay items out on a clean grid starting at (80, 80) with ~240px spacing.",
     `Description: ${prompt}`,
   ].join("\n");
+}
+
+// ---- Auto action: server picks the most useful response from the prompt + board context. ----
+
+const AUTO_SYSTEM =
+  'You help a team using a collaborative whiteboard. Read the board contents and the user prompt, then choose ONE of these responses and reply as JSON: {"chosenAction": "summarize"|"suggest"|"diagram", "note": string}. ' +
+  'Choose "summarize" when the board has real content and the user wants a quick overview, explanation, or recap. ' +
+  'Choose "suggest" when the prompt asks for ideas, next steps, planning, or improvements. ' +
+  'Choose "diagram" only when the prompt explicitly asks for a diagram, flowchart, or visual layout (and the board is empty or the user wants new shapes drawn). ' +
+  'If unsure, default to "summarize". Keep the note to one short sentence.';
+
+export function buildAutoPrompt(prompt: string, context: BoardContext): string {
+  return [
+    contextBlock(context),
+    "",
+    `User request: ${prompt}`,
+    "",
+    "Decide the single best response type and reply with JSON only: {\"chosenAction\": \"summarize\"|\"suggest\"|\"diagram\", \"note\": string}.",
+  ].join("\n");
+}
+
+function classifyAutoResult(
+  json: Record<string, unknown>,
+): "summarize" | "suggest" | "diagram" {
+  const chosen = typeof json.chosenAction === "string" ? json.chosenAction : "";
+  if (chosen === "summarize" || chosen === "suggest" || chosen === "diagram") return chosen;
+  return "summarize";
 }
 
 // One system prompt per action, shared by every model-backed provider so all
@@ -130,9 +156,7 @@ export class MockAiProvider implements AiProvider {
       summary:
         context.elementCount === 0
           ? "This board is empty — add some sticky notes or shapes to get started."
-          : `This board contains ${context.elementCount} elements (${counts || "no content"}).${
-              context.texts.length ? ` The main topics are: ${context.texts.slice(0, 3).join("; ")}.` : ""
-            }`,
+          : `This board contains ${context.elementCount} elements (${counts || "no content"}).${context.texts.length ? ` The main topics are: ${context.texts.slice(0, 3).join("; ")}.` : ""}`,
       keyPoints: context.texts.slice(0, 5).map((t) => t.slice(0, 120)),
     };
   }
@@ -145,7 +169,7 @@ export class MockAiProvider implements AiProvider {
     return { ideas: ideas.slice(0, 5) };
   }
 
-  async diagram(prompt: string): Promise<AiDiagramResult> {
+  async diagram(prompt: string, _context: BoardContext): Promise<AiDiagramResult> {
     const items = prompt
       .split(/[,\n;]|\band\b/i)
       .map((s) => s.trim())
@@ -157,6 +181,34 @@ export class MockAiProvider implements AiProvider {
       if (i > 0) shapes.push({ type: "arrow", x: 80 + (i - 1) * 240 + 180, y: 150, width: 60, height: 0, label: "" });
     });
     return { shapes };
+  }
+
+  async auto(prompt: string, context: BoardContext): Promise<AiAutoResult> {
+    // Deterministic default for tests/demos when no model key is configured.
+    if (context.elementCount === 0 || context.texts.length === 0) {
+      return {
+        chosenAction: "diagram",
+        note: "This board is empty — I generated a starter diagram from your request.",
+        shapes: (await this.diagram(prompt, context)).shapes,
+      };
+    }
+    const hasQuestion = /\b(what|explain|why|how|summar|catch me up|overview|what.s|state of)\b/i.test(prompt);
+    const hasIdea = /\b(suggest?\s|idea|next step|plan|improve|action|todo|assign|owner)\b/i.test(prompt);
+    if (hasIdea && !hasQuestion) {
+      return {
+        chosenAction: "suggest",
+        note: "Here are some next steps based on the board.",
+        ideas: context.texts.slice(0, 3).map((t) => `Follow up on the "${t.slice(0, 60)}" item with an owner and deadline.`),
+      };
+    }
+    return {
+      chosenAction: "summarize",
+      note: "Here is a quick overview of the board.",
+      summary:
+        `This board has ${context.elementCount} elements (${Object.entries(context.countsByType).map(([t, n]) => `${n} ${t}`).join(", ") || "no content"}).` +
+        (context.texts.length ? ` Key topics: ${context.texts.slice(0, 4).join("; ")}.` : ""),
+      keyPoints: context.texts.slice(0, 5).map((t) => t.slice(0, 120)),
+    };
   }
 }
 
@@ -183,9 +235,26 @@ abstract class ChatJsonProvider implements AiProvider {
     return normalizeSuggest(json);
   }
 
-  async diagram(prompt: string): Promise<AiDiagramResult> {
+  async diagram(prompt: string, _context: BoardContext): Promise<AiDiagramResult> {
     const json = parseCompletionJson(await this.completeText(DIAGRAM_SYSTEM, buildDiagramPrompt(prompt)));
     return normalizeDiagram(json);
+  }
+
+  async auto(prompt: string, context: BoardContext): Promise<AiAutoResult> {
+    const json = parseCompletionJson(await this.completeText(AUTO_SYSTEM, buildAutoPrompt(prompt, context)));
+    const chosen = classifyAutoResult(json);
+    switch (chosen) {
+      case "summarize": {
+        const s = await this.summarize(context);
+        return { chosenAction: "summarize", note: "Here is a quick overview of the board.", summary: s.summary, keyPoints: s.keyPoints };
+      }
+      case "suggest": {
+        const s = await this.suggest(context);
+        return { chosenAction: "suggest", note: "Here are some next steps based on the board.", ideas: s.ideas };
+      }
+      case "diagram":
+        return { chosenAction: "diagram", note: "I generated a starter diagram from your request.", shapes: (await this.diagram(prompt, context)).shapes };
+    }
   }
 }
 
@@ -279,6 +348,26 @@ export class HuggingFaceProvider extends ChatJsonProvider {
 
   protected async completeText(system: string, user: string): Promise<string> {
     const env = getEnv();
+    // The SDK retries 503 by default (retry_on_error defaults to true), but it
+    // does NOT retry 429 or network-level 502s, and the shared AbortSignal
+    // covers the entire (possibly-retried) call. We add a single app-level retry
+    // for the most common transient failures so a queued/free-tier model or a
+    // brief HF gateway hiccup does not immediately surface as a 502/503 to the
+    // board. One retry is a deliberate cost/safety tradeoff (AGENTS.md).
+    const budgetMs = env.AI_TIMEOUT_MS;
+    try {
+      return await this.chatOnce(system, user, budgetMs);
+    } catch (first) {
+      if (!isTransientHuggingFaceError(first)) throw first;
+      // Short backoff so we do not immediately hammer a throttled/overloaded
+      // provider; keep it well within the request budget.
+      await sleep(Math.min(4000, Math.max(1500, budgetMs - 10000)));
+      return await this.chatOnce(system, user, Math.max(5000, budgetMs - 5000));
+    }
+  }
+
+  private async chatOnce(system: string, user: string, budgetMs: number): Promise<string> {
+    const env = getEnv();
     const response = await this.getClient().chatCompletion(
       {
         model: env.HF_MODEL ?? "",
@@ -287,11 +376,13 @@ export class HuggingFaceProvider extends ChatJsonProvider {
           { role: "user", content: user },
         ],
         max_tokens: 800,
+        // Explicit so the intent is obvious: let the SDK retry 503s for us.
+        retry_on_error: true,
         // Pin a specific Inference Provider when configured; otherwise the SDK picks one
         // that serves the model (set HF_PROVIDER to make routing deterministic).
         ...(env.HF_PROVIDER ? { provider: env.HF_PROVIDER as NonNullable<Parameters<HuggingFaceChatClient["chatCompletion"]>[0]["provider"]> } : {}),
       },
-      { signal: AbortSignal.timeout(env.AI_TIMEOUT_MS) },
+      { signal: AbortSignal.timeout(budgetMs) },
     );
     const content = response.choices?.[0]?.message?.content;
     if (!content || !content.trim()) throw new Error("empty huggingface completion");
@@ -299,10 +390,27 @@ export class HuggingFaceProvider extends ChatJsonProvider {
   }
 }
 
+function isTransientHuggingFaceError(error: unknown): boolean {
+  if (error == null || typeof error !== "object") return false;
+  const e = error as Record<string, unknown>;
+  // SDK HTTP errors carry the response status.
+  const status =
+    typeof e.status === "number"
+      ? e.status
+      : (e as { response?: { status?: number } }).response?.status;
+  if (typeof status === "number" && (status === 429 || (status >= 500 && status < 600))) return true;
+  // Network / DNS / aborted calls are transient; retry once.
+  if (e instanceof TypeError) return true;
+  return false;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ---- Google Gemini provider ----
 
 type GeminiClient = Pick<GoogleGenAI, "models">;
-
 export class GeminiProvider extends ChatJsonProvider {
   readonly name = "gemini";
   private client: GeminiClient | null = null;
