@@ -167,7 +167,12 @@ Set per service in the Render dashboard (or with `scripts/set-render-env.mjs`):
   `NEXT_PUBLIC_APP_URL`.
 
 `NEXT_PUBLIC_*` vars are inlined at build time, so changing them requires a
-rebuild, not just a restart.
+rebuild, not just a restart. `apps/web/src/lib/env.ts` must reference them
+*directly* (`process.env.NEXT_PUBLIC_WS_URL`): Next.js only inlines literal
+references, and dynamic access (`process.env[name]`) silently compiles to
+`undefined` in the browser bundle — which makes y-websocket fall back to the
+page origin. Verify what the deployed bundle actually contains with
+`node scripts/render-diagnostics.mjs` plus a grep of the served `/_next/static/chunks/*`.
 
 ### Notes on the free tier
 

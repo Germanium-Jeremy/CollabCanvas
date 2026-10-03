@@ -103,6 +103,16 @@ export function Board({ roomId, roomName, role, isPublic, inviteCode, user }: Bo
         const { token } = await api<{ token: string }>("/auth/token");
         if (destroyed) return;
 
+        if (!env.wsUrl) {
+          // NEXT_PUBLIC_WS_URL is inlined at build time; an empty value means the
+          // bundle was built without it, and y-websocket would "helpfully" resolve
+          // the empty URL against the page origin (silent misdirection to the web
+          // host). Fail loudly instead.
+          throw new Error(
+            "NEXT_PUBLIC_WS_URL is not set in the client bundle. "
+            + "Rebuild the web service with NEXT_PUBLIC_WS_URL configured.",
+          );
+        }
         const previous = active;
         const doc = new Y.Doc();
         // Carry over local state (possibly unsynced edits) from the old doc.
