@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, X } from "lucide-react";
+import { Sparkles, X, Send, Lightbulb, List, Layout } from "lucide-react";
 import * as Y from "yjs";
-import type { AiResult } from "@collabcanvas/shared";
+import type { AiAutoResult, AiResult } from "@collabcanvas/shared";
 import { encodeDocToBase64 } from "@collabcanvas/yjs-utils";
 import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -55,7 +55,20 @@ interface AiPanelProps {
 type AiView =
   | { kind: "summary"; summary: string; keyPoints: string[] }
   | { kind: "ideas"; ideas: string[] }
+  | { kind: "diagram"; shapes: AiAutoResult["shapes"] }
+  | { kind: "autoNote"; note: string; result: AiAutoResult }
   | null;
+
+function actionIcon(action: AiAutoResult["chosenAction"]) {
+  switch (action) {
+    case "summarize":
+      return <List className="h-4 w-4 text-blue-500" aria-hidden />;
+    case "suggest":
+      return <Lightbulb className="h-4 w-4 text-amber-500" aria-hidden />;
+    case "diagram":
+      return <Layout className="h-4 w-4 text-emerald-500" aria-hidden />;
+  }
+}
 
 export function AiPanel({ roomId, doc, canEdit, userId, onElementsCreated, onToolChange, onClose }: AiPanelProps) {
   const [view, setView] = useState<AiView>(null);
@@ -63,7 +76,7 @@ export function AiPanel({ roomId, doc, canEdit, userId, onElementsCreated, onToo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function run(action: "summarize" | "suggest" | "diagram") {
+  async function run(action: "summarize" | "suggest" | "diagram" | "auto", promptText?: string) {
     if (!doc) return;
     setBusy(true);
     setError(null);
@@ -72,18 +85,31 @@ export function AiPanel({ roomId, doc, canEdit, userId, onElementsCreated, onToo
         method: "POST",
         body: JSON.stringify({
           action,
-          prompt: action === "diagram" ? prompt : undefined,
+          prompt: promptText ?? prompt,
           boardBase64: encodeDocToBase64(doc),
         }),
       });
-      if (action === "diagram" && "shapes" in result) {
+
+      // `action=auto` returns AiAutoResult; the other actions return their typed results.
+      const auto = result as AiAutoResult | undefined;
+      if (auto?.chosenAction) {
+        setView({ kind: "autoNote", note: auto.note, result: auto });
+        if (auto.chosenAction === "diagram" && auto.shapes) {
+          const elements = shapesToElements(auto.shapes, userId, 1_000_000);
+          onElementsCreated(elements);
+          onToolChange("select");
+        }
+        return;
+      }
+
+      if ("shapes" in result && Array.isArray(result.shapes)) {
         const elements = shapesToElements(result.shapes, userId, 1_000_000);
         onElementsCreated(elements);
         setView(null);
         onToolChange("select");
-      } else if ("summary" in result) {
-        setView({ kind: "summary", summary: result.summary, keyPoints: result.keyPoints });
-      } else if ("ideas" in result) {
+      } else if ("summary" in result && typeof result.summary === "string") {
+        setView({ kind: "summary", summary: result.summary, keyPoints: (result as { keyPoints?: string[] }).keyPoints ?? [] });
+      } else if ("ideas" in result && Array.isArray(result.ideas)) {
         setView({ kind: "ideas", ideas: result.ideas });
       }
     } catch (err) {
@@ -98,6 +124,12 @@ export function AiPanel({ roomId, doc, canEdit, userId, onElementsCreated, onToo
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleSend() {
+    const trimmed = prompt.trim();
+    if (!trimmed || busy || !doc) return;
+    run("auto", trimmed);
   }
 
   return (
@@ -122,26 +154,50 @@ export function AiPanel({ roomId, doc, canEdit, userId, onElementsCreated, onToo
             </Button>
           </div>
 
-          <label htmlFor="ai-prompt" className="mt-4 block text-xs font-medium text-slate-600">
-            Generate a diagram from text
-          </label>
-          <textarea
-            id="ai-prompt"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="e.g. signup, login, dashboard, settings"
-            rows={2}
-            maxLength={2000}
-            className="mt-1 w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm outline-none focus:border-blue-500"
-          />
-          <Button size="sm" className="mt-2 w-full" onClick={() => run("diagram")} disabled={busy || !prompt.trim() || !doc}>
-            {busy ? "Thinking…" : "Generate diagram"}
+          <div className="mt-4 flex items-center gap-2">
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              placeholder="Ask the AI anything — summarize, explain, suggest next steps, or generate a diagram"
+              rows={3}
+              maxLength={2000}
+              className="flex-1 rounded-md border border-slate-300 px-2.5 py-2 text-sm outline-none focus:border-blue-500"
+              aria-label="AI prompt"
+            />
+          </div>
+
+          <Button
+            size="sm"
+            className="mt-2 w-full"
+            onClick={handleSend}
+            disabled={busy || !prompt.trim() || !doc}
+            type="button"
+          >
+            {busy ? (
+              "Thinking…"
+            ) : (
+              <>
+                <Send className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Send
+              </>
+            )}
           </Button>
+
+          <p className="mt-2 text-[11px] text-slate-500">
+            Press <kbd className="rounded border border-slate-300 px-1 text-xs">Ctrl/Cmd+Enter</kbd> to send.
+          </p>
         </>
       ) : (
         <p className="mt-3 text-xs text-slate-500">Viewers cannot use AI actions.</p>
       )}
 
+      {/* Explicit action results */}
       {view?.kind === "summary" ? (
         <div className="mt-4 rounded-lg bg-blue-50 p-3 text-sm" data-testid="ai-result">
           <p className="whitespace-pre-wrap">{view.summary}</p>
@@ -161,6 +217,45 @@ export function AiPanel({ roomId, doc, canEdit, userId, onElementsCreated, onToo
             <li key={i}>{idea}</li>
           ))}
         </ul>
+      ) : null}
+
+      {view?.kind === "diagram" && view.shapes && view.shapes.length > 0 ? (
+        <p className="mt-2 text-xs text-emerald-700">Diagram generated — shapes added to the board.</p>
+      ) : null}
+
+      {/* Auto result: show the note + the actual content */}
+      {view?.kind === "autoNote" && view.result ? (
+        <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm" data-testid="ai-result">
+          <div className="flex items-center gap-2 mb-2">
+            {actionIcon(view.result.chosenAction)}
+            <span className="text-xs font-medium text-slate-500">
+              {view.result.chosenAction === "summarize" ? "Summary" : view.result.chosenAction === "suggest" ? "Suggestions" : "Diagram"}
+            </span>
+          </div>
+          <p className="text-xs text-slate-600 mb-2">{view.note}</p>
+          {view.result.summary && (
+            <>
+              <p className="whitespace-pre-wrap">{view.result.summary}</p>
+              {view.result.keyPoints && view.result.keyPoints.length > 0 ? (
+                <ul className="mt-2 list-disc space-y-1 pl-4">
+                  {view.result.keyPoints.map((point, i) => (
+                    <li key={i}>{point}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </>
+          )}
+          {view.result.ideas && view.result.ideas.length > 0 && (
+            <ul className="mt-2 list-decimal space-y-1 pl-4">
+              {view.result.ideas.map((idea, i) => (
+                <li key={i}>{idea}</li>
+              ))}
+            </ul>
+          )}
+          {view.result.shapes && view.result.shapes.length > 0 && (
+            <p className="mt-2 text-xs text-emerald-700">Diagram generated — shapes added to the board.</p>
+          )}
+        </div>
       ) : null}
 
       {error ? (
