@@ -118,7 +118,7 @@ describe("MockAiProvider", () => {
     expect(first).toEqual(second);
     expect(first.summary).toContain("3 elements");
     expect((await provider.suggest(context)).ideas.length).toBeGreaterThanOrEqual(3);
-    expect((await provider.diagram("signup, login")).shapes.length).toBeGreaterThanOrEqual(2);
+    expect((await provider.diagram("signup, login", context)).shapes.length).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -139,7 +139,7 @@ describe("HuggingFaceProvider", () => {
     const provider = new HuggingFaceProvider(
       hfClient({ choices: [{ message: { content: JSON.stringify({ shapes: [{ type: "sticky", x: 80, y: 80, label: "A" }] }) } }] }),
     );
-    const result = await provider.diagram("a, b");
+    const result = await provider.diagram("a, b", context);
     expect(result.shapes).toHaveLength(1);
     expect(result.shapes[0]?.type).toBe("sticky");
   });
@@ -184,7 +184,7 @@ describe("GeminiProvider", () => {
   it("throws on empty, malformed, and structurally invalid output", async () => {
     await expect(new GeminiProvider(geminiClient(undefined)).summarize(context)).rejects.toThrow("empty gemini completion");
     await expect(new GeminiProvider(geminiClient("{nope")).summarize(context)).rejects.toThrow("not valid JSON");
-    await expect(new GeminiProvider(geminiClient(JSON.stringify({ shapes: [] }))).diagram("x")).rejects.toThrow(
+    await expect(new GeminiProvider(geminiClient(JSON.stringify({ shapes: [] }))).diagram("x", context)).rejects.toThrow(
       "no usable shapes",
     );
   });
@@ -235,6 +235,6 @@ describe("OllamaProvider (fetch-based)", () => {
     await expect(new OllamaProvider().summarize(context)).rejects.toThrow("not valid JSON");
 
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("connection refused")));
-    await expect(new OllamaProvider().diagram("a, b")).rejects.toThrow("connection refused");
+    await expect(new OllamaProvider().diagram("a, b", context)).rejects.toThrow("connection refused");
   });
 });

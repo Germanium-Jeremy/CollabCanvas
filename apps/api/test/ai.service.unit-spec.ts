@@ -11,11 +11,13 @@ import { resetEnvForTests } from "../src/config/env";
 const emptyBoard = (): string => Buffer.from(Y.encodeStateAsUpdate(new Y.Doc())).toString("base64");
 
 function failingProvider(): AiProvider {
+  const failing = vi.fn().mockRejectedValue(new Error("503 upstream unavailable"));
   return {
     name: "failing",
-    summarize: vi.fn().mockRejectedValue(new Error("503 upstream unavailable")),
-    suggest: vi.fn().mockRejectedValue(new Error("503 upstream unavailable")),
-    diagram: vi.fn().mockRejectedValue(new Error("503 upstream unavailable")),
+    summarize: failing,
+    suggest: failing,
+    diagram: failing,
+    auto: failing,
   };
 }
 
@@ -94,5 +96,16 @@ describe("AiService", () => {
     const { service } = makeService({ provider, rateLimit: { ok: false, remaining: 0, retryAfterSeconds: 60 } });
     await expectHttpError(service.run("room-1", "user-1", { action: "diagram", prompt: "a" }), 429, "ai_rate_limited");
     expect(provider.diagram).not.toHaveBeenCalled();
+  });
+
+  it("dispatches the auto action to the provider", async () => {
+    const { service, provider } = makeService();
+    const result = await service.run("room-1", "user-1", { action: "auto", prompt: "what is on this board" });
+    expect(result).toBeDefined();
+    if ("chosenAction" in result) {
+      expect(["summarize", "suggest", "diagram"]).toContain(result.chosenAction);
+      expect(result).toHaveProperty("note");
+    }
+    expect(provider).toHaveProperty("auto");
   });
 });
